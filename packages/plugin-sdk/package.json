@@ -1,0 +1,6 @@
+{
+  "name":"@secretary/plugin-sdk","version":"1.0.0","type":"module","main":"dist/index.js","types":"dist/index.d.ts",
+  "scripts":{"build":"tsc -p tsconfig.json","test":"tsx --test test/*.test.ts"},
+  "dependencies":{"@modelcontextprotocol/sdk":"^1.27.0","ajv":"^8.17.1"},
+  "devDependencies":{"@types/node":"^22.0.0","typescript":"^5.9.0","tsx":"^4.20.0"}
+}

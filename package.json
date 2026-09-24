@@ -1,0 +1,20 @@
+{
+  "name": "secretary-workspace",
+  "private": true,
+  "workspaces": [
+    "runtime",
+    "web",
+    "packages/*",
+    "plugins/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @secretary/plugin-sdk && npm run build -w runtime && npm run build -w plugins/example && npm run build -w plugins/mail && npm run build -w plugins/video && npm run build -w web",
+    "test": "npm run test --workspaces --if-present",
+    "dev:web": "npm run dev -w web",
+    "dev:runtime": "npm run dev -w runtime"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "prettier": "^3.9.9"
+  }
+}

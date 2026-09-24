@@ -1,0 +1,6 @@
+services:
+  fixture:
+    image: node:22-bookworm-slim
+    command: ["node", "/fixture.mjs"]
+    volumes: ["./scripts/fixture-model.mjs:/fixture.mjs:ro"]
+    ports: ["127.0.0.1:9090:9090"]

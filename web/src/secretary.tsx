@@ -1,0 +1,1288 @@
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Checkbox,
+  Drawer,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  Layout,
+  Menu,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Spin,
+  Switch,
+  Table,
+  Tag,
+  Upload,
+} from "antd";
+import {
+  MessageOutlined,
+  ClockCircleOutlined,
+  ApiOutlined,
+  UserOutlined,
+  AppstoreOutlined,
+  FileTextOutlined,
+  HistoryOutlined,
+  PlusOutlined,
+  ArrowUpOutlined,
+  ReloadOutlined,
+  LogoutOutlined,
+  SettingOutlined,
+  KeyOutlined,
+} from "@ant-design/icons";
+import { api, downloadJSON, parseJSON, pretty } from "./api";
+import { Editor } from "./editor";
+const { TextArea } = Input;
+export type Row = Record<string, any>;
+const pages = [
+  { key: "chat", icon: <MessageOutlined />, label: "对话" },
+  { key: "tasks", icon: <ClockCircleOutlined />, label: "定时任务" },
+  { key: "artifacts", icon: <FileTextOutlined />, label: "文件与解析" },
+  { key: "personas", icon: <UserOutlined />, label: "人格" },
+  { key: "plugins", icon: <AppstoreOutlined />, label: "插件" },
+  { key: "configs", icon: <ApiOutlined />, label: "执行配置" },
+  { key: "runs", icon: <HistoryOutlined />, label: "运行记录" },
+  { key: "settings", icon: <SettingOutlined />, label: "系统与凭证" },
+];
+const descriptions: Record<string, string> = {
+  chat: "把事情交给秘书，过程与结果都有迹可循。",
+  tasks: "一次提醒、周期安排，或按步骤执行的后台工作。",
+  artifacts: "上传文件，查看插件保存的摘要和提取事项。",
+  personas: "设定表达方式和行为偏好，按会话选择。",
+  plugins: "独立安装业务能力，让秘书逐步成长。",
+  configs: "选择 Agent SDK，或通过 Key 与 Base URL 直连模型。",
+  runs: "检查模型调用、工具结果与后台任务状态。",
+  settings: "管理服务连接和仅保存在服务端的凭证。",
+};
+const statusColor: Record<string, string> = {
+  completed: "success",
+  active: "success",
+  sent: "success",
+  running: "processing",
+  queued: "processing",
+  paused: "warning",
+  failed: "error",
+  interrupted: "error",
+  error: "error",
+  uncertain: "warning",
+  notification_failed: "warning",
+};
+function Status({ value }: { value: string }) {
+  return <Tag color={statusColor[value]}>{value}</Tag>;
+}
+function JSONView({ value }: { value: unknown }) {
+  return <pre className="json">{pretty(value)}</pre>;
+}
+export function Secretary() {
+  const { message } = App.useApp();
+  const [logged, setLogged] = useState<boolean | null>(null),
+    [page, setPage] = useState("chat"),
+    [data, setData] = useState<Record<string, Row[]>>({}),
+    [status, setStatus] = useState<Row>({}),
+    [busy, setBusy] = useState(false);
+  const [edit, setEdit] = useState<{ kind: string; value: Row } | null>(null),
+    [inspect, setInspect] = useState<unknown>(null);
+  const [form] = Form.useForm();
+  const [sessionId, setSessionId] = useState(""),
+    [input, setInput] = useState(""),
+    [run, setRun] = useState<Row | null>(null),
+    [events, setEvents] = useState<Row[]>([]),
+    [stream, setStream] = useState("");
+  const source = useRef<EventSource | null>(null);
+  const end = useRef<HTMLDivElement>(null);
+  const rows = (name: string) => data[name] ?? [];
+  const session = rows("sessions").find((s) => s.id === sessionId);
+  const active = run?.status === "running" || run?.status === "queued";
+  async function refresh() {
+    setBusy(true);
+    try {
+      const names = [
+        "configs",
+        "personas",
+        "sessions",
+        "plugins",
+        "tasks",
+        "runs",
+        "artifacts",
+        "executions",
+        "secrets",
+        "tools",
+        "notifications",
+        "deliveries",
+      ];
+      const values = await Promise.all(names.map((n) => api("/" + n)));
+      setData(Object.fromEntries(names.map((n, i) => [n, values[i] ?? []])));
+      setStatus(await api("/status"));
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    api("/me")
+      .then(() => setLogged(true))
+      .catch(() => setLogged(false));
+    return () => source.current?.close();
+  }, []);
+  useEffect(() => {
+    if (logged) void refresh();
+  }, [logged]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  }, [stream, sessionId, page, active, session?.messages?.length]);
+  useEffect(() => {
+    if (!logged || (page !== "tasks" && page !== "runs")) return;
+    const id = setInterval(() => {
+      void refresh();
+    }, 10000);
+    return () => clearInterval(id);
+  }, [page, logged]);
+  async function act(fn: () => Promise<unknown>, success = "已保存") {
+    try {
+      const result = await fn();
+      message.success(success);
+      await refresh();
+      return result;
+    } catch (e) {
+      message.error((e as Error).message);
+      return undefined;
+    }
+  }
+  function open(kind: string, value: Row = {}) {
+    setEdit({ kind, value });
+    form.resetFields();
+    if (kind === "config")
+      form.setFieldsValue({
+        kind: "api",
+        protocol: "openai-chat",
+        provider: "codex",
+        maxSteps: 12,
+        maxTokens: 4096,
+        timeoutSec: 180,
+        capabilities: {
+          tools: true,
+          stream: true,
+          images: false,
+          resume: false,
+        },
+        ...value,
+      });
+    else if (kind === "persona")
+      form.setFieldsValue({
+        ...value,
+        examplesJSON: pretty(value.examples ?? []),
+        allTools: value.tools == null,
+        tools: value.tools ?? [],
+      });
+    else if (kind === "plugin")
+      form.setFieldsValue({ config: value.config, grants: value.grants });
+    else if (kind === "task")
+      form.setFieldsValue({
+        kind: "manual",
+        timeZone: "Asia/Shanghai",
+        catchupSec: 3600,
+        notify: true,
+        configId: session?.configId ?? rows("configs")[0]?.id,
+        personaId:
+          session?.personaId ??
+          rows("personas").find((p) => p.default)?.id ??
+          "secretary",
+        sessionId: session?.id,
+        ...value,
+        steps: (
+          value.steps ?? [{ id: "step1", kind: "agent", prompt: "" }]
+        ).map((s: Row) => ({ ...s, argumentsJSON: pretty(s.arguments ?? {}) })),
+      });
+    else form.setFieldsValue(value);
+  }
+  async function save() {
+    try {
+      const v = await form.validateFields();
+      if (!edit) return;
+      let result: any;
+      switch (edit.kind) {
+        case "config":
+          result = await api("/configs", { ...edit.value, ...v });
+          break;
+        case "persona": {
+          const { examplesJSON, allTools, ...rest } = v;
+          result = await api("/personas", {
+            ...edit.value,
+            ...rest,
+            tools: allTools ? null : (rest.tools ?? []),
+            examples: parseJSON(examplesJSON, []),
+          });
+          break;
+        }
+        case "session":
+          result = await api("/sessions", { ...edit.value, ...v });
+          setSessionId(result.id);
+          setPage("chat");
+          break;
+        case "secret":
+          result = await api("/secrets", v);
+          break;
+        case "plugin":
+          result = await api("/plugins/" + edit.value.id + "/configure", v);
+          break;
+        case "register":
+          result = await api("/plugins/register", v);
+          break;
+        case "task": {
+          const steps = v.steps.map((s: Row) => ({
+            id: s.id,
+            kind: s.kind,
+            delaySec: s.delaySec ?? 0,
+            ...(s.kind === "agent"
+              ? { prompt: s.prompt }
+              : {
+                  tool: s.tool,
+                  arguments: parseJSON(s.argumentsJSON ?? "{}", {}),
+                }),
+          }));
+          result = await api("/tasks", {
+            ...edit.value,
+            ...v,
+            steps,
+            runAt: v.runAt ? new Date(v.runAt).toISOString() : undefined,
+          });
+          break;
+        }
+      }
+      setEdit(null);
+      message.success("已保存");
+      await refresh();
+      if (edit.kind === "task" && v.kind === "manual")
+        message.info("任务已保存，点击“立即执行”启动。");
+      return result;
+    } catch (e) {
+      if (e instanceof Error) message.error(e.message);
+    }
+  }
+  function watch(value: Row) {
+    source.current?.close();
+    setRun(value);
+    setEvents([]);
+    setStream("");
+    const s = new EventSource("/api/runs/" + value.id + "/events");
+    source.current = s;
+    s.onmessage = (event) => {
+      const item = JSON.parse(event.data);
+      setEvents((old) => [...old.slice(-299), item]);
+      if (item.type === "text.delta")
+        setStream((old) => old + (item.data.text ?? ""));
+      if (item.type === "completed" && item.data.text)
+        setStream(item.data.text);
+      if (item.type === "finished") {
+        s.close();
+        setRun({
+          ...value,
+          status: item.data.status,
+          result: item.data.result,
+        });
+        void refresh();
+      }
+    };
+    s.onerror = () => {
+      s.close();
+      api("/runs/" + value.id)
+        .then((current) => {
+          setRun(current);
+          setStream(current.result ?? "");
+          void refresh();
+        })
+        .catch((e) => message.error(e.message));
+    };
+  }
+  async function send() {
+    if (!sessionId || !input.trim()) return;
+    try {
+      const value = await api("/sessions/" + sessionId + "/messages", {
+        message: input,
+        requestId: crypto.randomUUID(),
+      });
+      setInput("");
+      watch(value);
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  }
+  async function importPersona(file: File) {
+    try {
+      const p = JSON.parse(await file.text());
+      delete p.id;
+      p.default = false;
+      await api("/personas", p);
+      await refresh();
+      message.success("已导入人格");
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+    return false;
+  }
+  function recordColumns(extra: any[] = []) {
+    return [
+      {
+        title: "名称 / ID",
+        dataIndex: "id",
+        render: (_: unknown, r: Row) => (
+          <div>
+            <strong>
+              {r.name ?? r.prompt?.slice(0, 45) ?? r.taskId ?? r.id}
+            </strong>
+            <div className="muted mono">{r.id}</div>
+          </div>
+        ),
+      },
+      {
+        title: "状态",
+        dataIndex: "status",
+        render: (s: string) => <Status value={s} />,
+      },
+      ...extra,
+      {
+        title: "",
+        render: (_: unknown, r: Row) => (
+          <Button type="link" onClick={() => setInspect(r)}>
+            详情
+          </Button>
+        ),
+      },
+    ];
+  }
+  if (logged === null)
+    return (
+      <div className="loading">
+        <Spin size="large" />
+      </div>
+    );
+  if (!logged)
+    return (
+      <div className="login">
+        <div className="login-copy">
+          <span className="eyebrow">YOUR PERSONAL SECRETARY</span>
+          <h1>
+            拾起琐事，
+            <br />
+            留一点时间给自己。
+          </h1>
+          <p>对话、人格、插件和日程，在一个地方安顿好。</p>
+          <div className="seal">拾一</div>
+        </div>
+        <Card className="login-card">
+          <div className="eyebrow">欢迎回来</div>
+          <h2>进入秘书工作台</h2>
+          <Form
+            layout="vertical"
+            onFinish={async (v) => {
+              try {
+                await api("/login", v);
+                setLogged(true);
+              } catch (e) {
+                message.error((e as Error).message);
+              }
+            }}
+          >
+            <Form.Item
+              name="password"
+              label="管理员密码"
+              rules={[{ required: true }]}
+            >
+              <Input.Password size="large" autoComplete="current-password" />
+            </Form.Item>
+            <Button type="primary" htmlType="submit" block size="large">
+              登录
+            </Button>
+          </Form>
+          <p className="muted">使用部署时设置的 ADMIN_PASSWORD</p>
+        </Card>
+      </div>
+    );
+  let content: ReactNode;
+  if (page === "chat")
+    content = (
+      <div className="chat-layout">
+        <aside className="conversation-list">
+          <Button
+            block
+            icon={<PlusOutlined />}
+            onClick={() =>
+              open("session", {
+                title: "新的对话",
+                configId: rows("configs")[0]?.id,
+                personaId:
+                  rows("personas").find((p) => p.default)?.id ?? "secretary",
+              })
+            }
+          >
+            新对话
+          </Button>
+          <div className="list-heading">
+            最近会话 <span>{rows("sessions").length}</span>
+          </div>
+          {rows("sessions")
+            .filter((s) => s.channel !== "task")
+            .map((s) => (
+              <button
+                className={
+                  "session-item " + (s.id === sessionId ? "selected" : "")
+                }
+                key={s.id}
+                onClick={() => {
+                  setSessionId(s.id);
+                  setRun(null);
+                  setStream("");
+                  setEvents([]);
+                  source.current?.close();
+                }}
+              >
+                <MessageOutlined />
+                <span>
+                  {s.title || "未命名会话"}
+                  <small>
+                    {rows("personas").find((p) => p.id === s.personaId)?.name ??
+                      s.personaId}{" "}
+                    · {s.channel}
+                  </small>
+                </span>
+              </button>
+            ))}
+        </aside>
+        <section className="chat-panel">
+          {!session ? (
+            <div className="chat-empty">
+              <div className="mark">拾</div>
+              <h2>今天有什么需要安排？</h2>
+              <p>选择执行配置，开启第一段对话。</p>
+              <div className="prompt-cards">
+                <Card size="small">“帮我整理今天的邮件”</Card>
+                <Card size="small">“每周五下午提醒我复盘”</Card>
+              </div>
+              <Button
+                type="primary"
+                onClick={() =>
+                  open("session", {
+                    title: "新的对话",
+                    configId: rows("configs")[0]?.id,
+                    personaId:
+                      rows("personas").find((p) => p.default)?.id ??
+                      "secretary",
+                  })
+                }
+              >
+                开启对话
+              </Button>
+              {rows("configs").length === 0 && (
+                <Button
+                  type="link"
+                  onClick={() => {
+                    setPage("configs");
+                    open("config");
+                  }}
+                >
+                  先添加执行配置
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="chat-title">
+                <div>
+                  <strong>{session.title || "未命名会话"}</strong>
+                  <span className="muted">
+                    {
+                      rows("configs").find((c) => c.id === session.configId)
+                        ?.name
+                    }{" "}
+                    /{" "}
+                    {
+                      rows("personas").find((p) => p.id === session.personaId)
+                        ?.name
+                    }
+                  </span>
+                </div>
+                <Button size="small" onClick={() => open("session", session)}>
+                  会话设置
+                </Button>
+              </div>
+              <div className="messages">
+                {(session.messages ?? []).map((m: Row, i: number) => (
+                  <div className={"bubble-row " + m.role} key={i}>
+                    <div className="avatar">
+                      {m.role === "user" ? "我" : "拾"}
+                    </div>
+                    <div className="bubble">{m.content}</div>
+                  </div>
+                ))}
+                {run && active && (
+                  <>
+                    <div className="bubble-row user">
+                      <div className="avatar">我</div>
+                      <div className="bubble">{run.prompt}</div>
+                    </div>
+                    <div className="bubble-row assistant">
+                      <div className="avatar">拾</div>
+                      <div className="bubble">
+                        {stream || <span className="muted">正在处理…</span>}
+                      </div>
+                    </div>
+                  </>
+                )}
+                {run && !active && run.status !== "completed" && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={"执行状态：" + run.status}
+                    description={run.error || "查看运行记录了解详情"}
+                  />
+                )}
+                <div ref={end} />
+              </div>
+              {events.some((e) => e.type.includes("tool.")) && (
+                <div className="tool-strip">
+                  <Tag color="processing">工具活动</Tag>
+                  <span>
+                    {events
+                      .filter((e) => e.type.includes("tool."))
+                      .slice(-1)
+                      .map((e) => e.data.name + " · " + e.type)}
+                  </span>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => setInspect(events)}
+                  >
+                    查看过程
+                  </Button>
+                </div>
+              )}
+              <div className="composer">
+                <TextArea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  autoSize={{ minRows: 2, maxRows: 6 }}
+                  placeholder="说说你想做的事… Shift + Enter 换行"
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !e.nativeEvent.isComposing
+                    ) {
+                      e.preventDefault();
+                      if (!active) void send();
+                    }
+                  }}
+                />
+                <div>
+                  <span className="muted">工具由人格与服务端权限共同控制</span>
+                  {active ? (
+                    <Button
+                      onClick={() =>
+                        act(
+                          () => api("/runs/" + run!.id + "/cancel", {}),
+                          "已请求取消",
+                        )
+                      }
+                    >
+                      停止
+                    </Button>
+                  ) : (
+                    <Button
+                      type="primary"
+                      icon={<ArrowUpOutlined />}
+                      onClick={send}
+                      disabled={!input.trim()}
+                    >
+                      发送
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+    );
+  else if (page === "configs")
+    content = (
+      <>
+        <div className="toolbar">
+          <span>SDK 与 API 使用相同的人格和业务工具</span>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => open("config")}
+          >
+            添加配置
+          </Button>
+        </div>
+        <div className="cards">
+          {rows("configs").map((c) => (
+            <Card
+              key={c.id}
+              title={
+                <Space>
+                  <ApiOutlined />
+                  {c.name}
+                </Space>
+              }
+              extra={<Tag>{c.kind.toUpperCase()}</Tag>}
+            >
+              <p className="model-name">{c.model}</p>
+              <p className="muted">
+                {c.kind === "sdk" ? c.provider : c.protocol}
+              </p>
+              <p className="endpoint">{c.baseUrl || "SDK 默认服务地址"}</p>
+              <Space wrap>
+                {c.capabilities?.tools && <Tag>工具</Tag>}
+                {c.capabilities?.images && <Tag>图片</Tag>}
+                {c.capabilities?.stream && <Tag>流式</Tag>}
+              </Space>
+              <div className="card-actions">
+                <Button onClick={() => open("config", c)}>编辑</Button>
+                <Button
+                  onClick={() =>
+                    act(
+                      async () =>
+                        setInspect(await api("/configs/" + c.id + "/test", {})),
+                      "检查完成",
+                    )
+                  }
+                >
+                  连接检查
+                </Button>
+                <Popconfirm
+                  title="删除此配置？"
+                  onConfirm={() =>
+                    act(() => api("/configs/" + c.id, undefined, "DELETE"))
+                  }
+                >
+                  <Button danger type="text">
+                    删除
+                  </Button>
+                </Popconfirm>
+              </div>
+            </Card>
+          ))}
+        </div>
+        {!rows("configs").length && (
+          <Empty description="添加第一条配置后即可开始对话" />
+        )}
+      </>
+    );
+  else if (page === "personas")
+    content = (
+      <>
+        <div className="toolbar">
+          <span>人格更新会在下一次执行生效</span>
+          <Space>
+            <Upload
+              accept=".json"
+              showUploadList={false}
+              beforeUpload={importPersona}
+            >
+              <Button>导入 JSON</Button>
+            </Upload>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => open("persona")}
+            >
+              创建人格
+            </Button>
+          </Space>
+        </div>
+        <div className="cards">
+          {rows("personas").map((p) => (
+            <Card
+              key={p.id}
+              title={
+                <Space>
+                  <span className="persona-avatar">{p.name.slice(0, 1)}</span>
+                  {p.name}
+                </Space>
+              }
+              extra={
+                p.default ? (
+                  <Tag color="green">默认</Tag>
+                ) : (
+                  <Tag>v{p.version}</Tag>
+                )
+              }
+            >
+              <p>{p.description || "尚未填写介绍"}</p>
+              <p className="clamp muted">{p.systemPrompt}</p>
+              <Tag>
+                {p.tools === null
+                  ? "全部已授权工具"
+                  : (p.tools?.length ?? 0) + " 个工具"}
+              </Tag>
+              <div className="card-actions">
+                <Button onClick={() => open("persona", p)}>编辑</Button>
+                <Button
+                  onClick={() =>
+                    open("persona", {
+                      ...p,
+                      id: undefined,
+                      name: p.name + " 副本",
+                      default: false,
+                    })
+                  }
+                >
+                  复制
+                </Button>
+                <Button
+                  type="text"
+                  onClick={() => downloadJSON(p.name + ".json", p)}
+                >
+                  导出
+                </Button>
+                <Popconfirm
+                  title="删除此人格？"
+                  onConfirm={() =>
+                    act(() => api("/personas/" + p.id, undefined, "DELETE"))
+                  }
+                >
+                  <Button type="text" danger>
+                    删除
+                  </Button>
+                </Popconfirm>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </>
+    );
+  else if (page === "plugins")
+    content = (
+      <>
+        <div className="toolbar">
+          <span>插件包独立运行，通过 MCP 暴露工具</span>
+          <Button
+            icon={<PlusOutlined />}
+            type="primary"
+            onClick={() => open("register")}
+          >
+            注册 / 更新插件
+          </Button>
+        </div>
+        <div className="cards">
+          {rows("plugins").map((p) => (
+            <Card
+              key={p.id}
+              title={
+                <Space>
+                  <AppstoreOutlined />
+                  {p.manifest.name}
+                </Space>
+              }
+              extra={
+                <Switch
+                  checked={p.enabled}
+                  onChange={(enabled) =>
+                    act(
+                      () => api("/plugins/" + p.id + "/enable", { enabled }),
+                      enabled ? "已启用" : "已停用",
+                    )
+                  }
+                />
+              }
+            >
+              <Tag>v{p.manifest.version}</Tag>
+              <p className="muted">{p.manifest.description}</p>
+              <Space wrap>
+                {p.manifest.tools.map((t: Row) => (
+                  <Tag key={t.name}>{t.name}</Tag>
+                ))}
+              </Space>
+              <div className="card-actions">
+                <Button onClick={() => open("plugin", p)}>配置与权限</Button>
+                <Button
+                  onClick={() =>
+                    act(
+                      () => api("/plugins/" + p.id + "/health", {}),
+                      "健康检查通过",
+                    )
+                  }
+                >
+                  检查
+                </Button>
+                <Button
+                  type="text"
+                  onClick={() =>
+                    act(
+                      async () =>
+                        setInspect(await api("/plugins/" + p.id + "/logs")),
+                      "已读取日志",
+                    )
+                  }
+                >
+                  日志
+                </Button>
+              </div>
+              {p.manifest.templates?.length > 0 && (
+                <div className="templates">
+                  <span className="muted">任务模板</span>
+                  {p.manifest.templates.map((t: Row) => (
+                    <Button
+                      size="small"
+                      key={t.id}
+                      onClick={() =>
+                        open("task", { name: t.name, steps: t.steps })
+                      }
+                    >
+                      {t.name}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      </>
+    );
+  else if (page === "tasks")
+    content = (
+      <>
+        <div className="toolbar">
+          <span>默认不重叠执行 · 时区明确 · 每步保留结果</span>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => open("task")}
+          >
+            创建任务
+          </Button>
+        </div>
+        <Table
+          rowKey="id"
+          dataSource={rows("tasks")}
+          columns={[
+            {
+              title: "任务",
+              dataIndex: "name",
+              render: (name: string, t: Row) => (
+                <div>
+                  <strong>{name}</strong>
+                  <div className="muted">
+                    {t.steps.length} 个步骤 · {t.timeZone}
+                  </div>
+                </div>
+              ),
+            },
+            {
+              title: "安排",
+              render: (_: unknown, t: Row) =>
+                t.kind === "recurring" ? (
+                  <code>{t.cron}</code>
+                ) : t.kind === "once" ? (
+                  new Date(t.runAt).toLocaleString()
+                ) : (
+                  "手动"
+                ),
+            },
+            {
+              title: "状态",
+              dataIndex: "status",
+              render: (s: string) => <Status value={s} />,
+            },
+            {
+              title: "操作",
+              render: (_: unknown, t: Row) => (
+                <Space wrap>
+                  <Button size="small" onClick={() => open("task", t)}>
+                    编辑
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      act(
+                        () => api("/tasks/" + t.id + "/trigger", {}),
+                        "已提交执行",
+                      )
+                    }
+                  >
+                    立即执行
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      act(() =>
+                        api(
+                          "/tasks/" +
+                            t.id +
+                            "/" +
+                            (t.paused ? "resume" : "pause"),
+                          {},
+                        ),
+                      )
+                    }
+                  >
+                    {t.paused ? "恢复" : "暂停"}
+                  </Button>
+                  <Popconfirm
+                    title="取消任务及其正在执行的工作？"
+                    onConfirm={() =>
+                      act(() => api("/tasks/" + t.id + "/cancel", {}), "已取消")
+                    }
+                  >
+                    <Button size="small" danger>
+                      取消
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+          expandable={{ expandedRowRender: (t) => <JSONView value={t} /> }}
+        />
+        <h3>最近执行</h3>
+        <Table
+          rowKey="id"
+          size="small"
+          dataSource={rows("executions")}
+          columns={recordColumns()}
+          pagination={{ pageSize: 5 }}
+        />
+      </>
+    );
+  else if (page === "artifacts")
+    content = (
+      <>
+        <div className="toolbar">
+          <span>上传视频后，可用视频插件模板创建后台解析任务</span>
+          <Upload
+            action="/api/files"
+            showUploadList={false}
+            maxCount={1}
+            onChange={(info) => {
+              if (info.file.status === "done") {
+                message.success("上传完成");
+                void refresh();
+              } else if (info.file.status === "error") {
+                message.error(info.file.response?.error ?? "上传失败");
+              }
+            }}
+          >
+            <Button type="primary" icon={<PlusOutlined />}>
+              上传文件
+            </Button>
+          </Upload>
+        </div>
+        <Table
+          rowKey="id"
+          dataSource={rows("artifacts")}
+          columns={[
+            {
+              title: "文件 / 解析结果",
+              dataIndex: "name",
+              render: (name: string, r: Row) => (
+                <div>
+                  <strong>{name}</strong>
+                  <div className="muted mono">{r.id}</div>
+                </div>
+              ),
+            },
+            { title: "类型", dataIndex: "mime" },
+            {
+              title: "来源",
+              render: (_: unknown, r: Row) => r.pluginId || "上传",
+            },
+            {
+              title: "时间",
+              dataIndex: "createdAt",
+              render: (t: string) => new Date(t).toLocaleString(),
+            },
+            {
+              title: "操作",
+              render: (_: unknown, r: Row) => (
+                <Space>
+                  <Button size="small" onClick={() => setInspect(r)}>
+                    查看
+                  </Button>
+                  {!r.data && (
+                    <Button size="small" href={"/api/files/" + r.id}>
+                      下载
+                    </Button>
+                  )}
+                  {!r.data && (
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        open("task", {
+                          name: "解析 " + r.name,
+                          steps: [
+                            {
+                              id: "parse",
+                              kind: "tool",
+                              tool: "video__parse",
+                              arguments: { artifactId: r.id },
+                            },
+                          ],
+                        })
+                      }
+                    >
+                      解析视频
+                    </Button>
+                  )}
+                  {r.data && (
+                    <Button
+                      size="small"
+                      onClick={() => downloadJSON(r.name + ".json", r.data)}
+                    >
+                      导出
+                    </Button>
+                  )}
+                  {r.data && (
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        open("task", {
+                          name: "整理事项 · " + r.name,
+                          steps: [
+                            {
+                              id: "extract",
+                              kind: "agent",
+                              prompt:
+                                "读取产物 " +
+                                r.id +
+                                "，整理其中的事项。只有明确的事项和日期才创建任务，缺失信息请在结果中说明。",
+                            },
+                          ],
+                        })
+                      }
+                    >
+                      提取事项
+                    </Button>
+                  )}
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </>
+    );
+  else if (page === "runs")
+    content = (
+      <>
+        <Table
+          rowKey="id"
+          dataSource={rows("runs")}
+          columns={recordColumns([
+            {
+              title: "策略",
+              render: (_: unknown, r: Row) => (
+                <>
+                  <Tag>
+                    {r.config.kind === "sdk"
+                      ? r.config.provider
+                      : r.config.protocol}
+                  </Tag>
+                  <span className="muted">{r.config.model}</span>
+                </>
+              ),
+            },
+            {
+              title: "人格",
+              render: (_: unknown, r: Row) =>
+                r.persona.name + " v" + r.persona.version,
+            },
+            {
+              title: "时间",
+              dataIndex: "createdAt",
+              render: (t: string) => new Date(t).toLocaleString(),
+            },
+            {
+              title: "过程",
+              render: (_: unknown, r: Row) => (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setSessionId(r.sessionId);
+                    setPage("chat");
+                    watch(r);
+                  }}
+                >
+                  查看事件
+                </Button>
+              ),
+            },
+          ])}
+        />
+        <h3>任务通知</h3>
+        <Table
+          rowKey="id"
+          size="small"
+          dataSource={rows("notifications")}
+          columns={recordColumns()}
+        />
+        <h3>QQ 投递记录</h3>
+        <Table
+          rowKey="id"
+          size="small"
+          dataSource={rows("deliveries")}
+          columns={recordColumns()}
+        />
+      </>
+    );
+  else
+    content = (
+      <>
+        <div className="cards">
+          <Card title="服务状态">
+            <p>
+              PostgreSQL{" "}
+              <Status value={status.database === "ok" ? "active" : "error"} />
+            </p>
+            <p>
+              Temporal{" "}
+              <Status value={status.temporal === "ok" ? "active" : "error"} />
+            </p>
+            <p>
+              SDK 服务{" "}
+              <Status
+                value={typeof status.runtime === "object" ? "active" : "error"}
+              />
+            </p>
+            <p>QQ {status.qqConfigured ? "已配置" : "待配置"}</p>
+            <Alert
+              type="info"
+              message="连接正常不代表真实模型已联调。"
+              description="通过对话分别检查各 SDK 和模型协议，并在运行记录中核对工具结果。"
+            />
+          </Card>
+          <Card title="QQ 私聊绑定">
+            <p>
+              在部署环境中设置 QQ_APP_ID、QQ_SECRET、QQ_USER_OPENID 和
+              QQ_CONFIG_ID。只有绑定的用户可以创建会话。
+            </p>
+            <p className="muted">
+              回调地址：<code>/qq/webhook</code>
+              <br />
+              执行配置 ID 可在配置编辑窗口查看。
+            </p>
+            <p className="muted">
+              主动通知受 QQ 平台权限和额度约束，失败会保留投递记录。
+            </p>
+          </Card>
+        </div>
+        <div className="toolbar">
+          <h3>
+            <KeyOutlined /> 凭证库
+          </h3>
+          <Button onClick={() => open("secret")}>添加凭证</Button>
+        </div>
+        <Table
+          rowKey="id"
+          dataSource={rows("secrets")}
+          columns={[
+            { title: "名称", dataIndex: "name" },
+            { title: "引用 ID", dataIndex: "id" },
+            { title: "", render: () => <Tag>仅服务端使用</Tag> },
+          ]}
+        />
+      </>
+    );
+  return (
+    <Layout className="shell">
+      <Layout.Sider
+        width={222}
+        theme="light"
+        breakpoint="lg"
+        collapsedWidth={64}
+      >
+        <div className="brand">
+          <span>拾</span>
+          <div>
+            拾一<small>AI SECRETARY</small>
+          </div>
+        </div>
+        <Menu
+          selectedKeys={[page]}
+          items={pages}
+          onClick={({ key }) => setPage(key)}
+        />
+        <div className="sidebar-bottom">
+          <span
+            className={"dot " + (status.temporal === "ok" ? "online" : "")}
+          />
+          个人工作台
+          <Button
+            type="text"
+            icon={<LogoutOutlined />}
+            title="退出登录"
+            onClick={async () => {
+              await api("/logout", {});
+              source.current?.close();
+              setLogged(false);
+            }}
+          />
+        </div>
+      </Layout.Sider>
+      <Layout>
+        <header className="topbar">
+          <span>
+            工作空间 <span className="slash">/</span>{" "}
+            {pages.find((p) => p.key === page)?.label}
+          </span>
+          <Space>
+            <Tag bordered={false}>PERSONAL</Tag>
+            <Button
+              type="text"
+              icon={<ReloadOutlined spin={busy} />}
+              onClick={refresh}
+            >
+              刷新
+            </Button>
+            <div className="user-dot">我</div>
+          </Space>
+        </header>
+        <main className={"main " + (page === "chat" ? "chat-main" : "")}>
+          <div className="page-heading">
+            <div>
+              <h1>{pages.find((p) => p.key === page)?.label}</h1>
+              <p>{descriptions[page]}</p>
+            </div>
+            {page === "chat" && (
+              <span className="subtle-date">
+                {new Date().toLocaleDateString("zh-CN", {
+                  month: "long",
+                  day: "numeric",
+                  weekday: "long",
+                })}
+              </span>
+            )}
+          </div>
+          {content}
+        </main>
+      </Layout>
+      <Editor
+        edit={edit}
+        form={form}
+        rows={rows}
+        onSave={save}
+        onClose={() => setEdit(null)}
+        onSecrets={() => {
+          setEdit(null);
+          setPage("settings");
+        }}
+      />
+      <Drawer
+        title="详情"
+        open={inspect !== null}
+        onClose={() => setInspect(null)}
+        width={Math.min(window.innerWidth - 32, 820)}
+      >
+        <JSONView value={inspect} />
+      </Drawer>
+    </Layout>
+  );
+}

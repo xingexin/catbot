@@ -1,0 +1,6 @@
+{
+  "name":"@secretary/runtime","private":true,"type":"module",
+  "scripts":{"build":"tsc -p tsconfig.json","dev":"tsx src/server.ts","start":"node dist/server.js","test":"tsx --test test/*.test.ts"},
+  "dependencies":{"@anthropic-ai/claude-agent-sdk":"^0.2.0","@openai/codex-sdk":"^0.107.0","@tencent-ai/agent-sdk":"^0.1.0","@modelcontextprotocol/sdk":"^1.27.0"},
+  "devDependencies":{"@types/node":"^22.0.0","typescript":"^5.9.0","tsx":"^4.20.0"}
+}

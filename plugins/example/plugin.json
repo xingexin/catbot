@@ -1,0 +1,91 @@
+{
+  "id": "example",
+  "name": "示例工具",
+  "version": "1.0.1",
+  "entry": "dist/index.cjs",
+  "description": "最小独立插件：文本回显与命名便签。",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "tools": [
+    {
+      "name": "echo",
+      "description": "回显文本并统计字符数，用于验证工具链。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "characters": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "text",
+          "characters"
+        ]
+      },
+      "permissions": [],
+      "timeoutSec": 10,
+      "retrySafe": true
+    },
+    {
+      "name": "note",
+      "description": "读取命名便签；提供 text 时保存便签。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "permissions": [
+        "storage"
+      ],
+      "timeoutSec": 15,
+      "retrySafe": true
+    }
+  ],
+  "templates": [
+    {
+      "id": "echo",
+      "name": "工具调用演示",
+      "steps": [
+        {
+          "id": "echo",
+          "kind": "tool",
+          "tool": "example__echo",
+          "arguments": {
+            "text": "任务框架运行成功"
+          }
+        }
+      ]
+    }
+  ]
+}

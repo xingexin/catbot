@@ -1,0 +1,180 @@
+{
+  "id": "mail",
+  "name": "IMAP 邮箱",
+  "version": "1.0.1",
+  "entry": "dist/index.cjs",
+  "description": "增量读取、搜索、摘要和标记已读。支持 TLS IMAP；不发送邮件。",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "host": {
+        "type": "string"
+      },
+      "port": {
+        "type": "integer",
+        "default": 993,
+        "minimum": 1,
+        "maximum": 65535
+      },
+      "username": {
+        "type": "string"
+      },
+      "password": {
+        "type": "string",
+        "format": "password"
+      },
+      "summaryConfigId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "host",
+      "username",
+      "password"
+    ],
+    "additionalProperties": false
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "按正文搜索邮件，读取最近匹配邮件。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "default": "INBOX"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "permissions": [
+        "mail.read"
+      ],
+      "timeoutSec": 120,
+      "retrySafe": true
+    },
+    {
+      "name": "sync",
+      "description": "按 UIDVALIDITY 和 UID 增量读取并保存邮箱数据。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "default": "INBOX"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "permissions": [
+        "mail.read",
+        "storage"
+      ],
+      "timeoutSec": 120,
+      "retrySafe": true
+    },
+    {
+      "name": "summarize",
+      "description": "总结最近邮件并提取待办事项，保存解析结果。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "default": "INBOX"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20
+          },
+          "unreadOnly": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "permissions": [
+        "mail.read",
+        "models",
+        "storage"
+      ],
+      "timeoutSec": 300,
+      "retrySafe": true
+    },
+    {
+      "name": "mark_read",
+      "description": "将指定 UID 的邮件标为已读，必须提供同步时的 UIDVALIDITY。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "default": "INBOX"
+          },
+          "uids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "uidValidity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uids",
+          "uidValidity"
+        ],
+        "additionalProperties": false
+      },
+      "permissions": [
+        "mail.write"
+      ],
+      "timeoutSec": 120,
+      "retrySafe": true
+    }
+  ],
+  "templates": [
+    {
+      "id": "daily-summary",
+      "name": "每日邮箱摘要",
+      "steps": [
+        {
+          "id": "summary",
+          "kind": "tool",
+          "tool": "mail__summarize",
+          "arguments": {
+            "folder": "INBOX",
+            "limit": 20,
+            "unreadOnly": true
+          }
+        }
+      ]
+    }
+  ]
+}

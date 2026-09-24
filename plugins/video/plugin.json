@@ -1,0 +1,86 @@
+{
+  "id": "video",
+  "name": "视频解析",
+  "version": "1.0.1",
+  "entry": "dist/index.cjs",
+  "description": "FFmpeg 抽取音频及画面，通过转写和视觉模型生成摘要与事项。",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "transcriptionConfigId": {
+        "type": "string"
+      },
+      "transcriptionModel": {
+        "type": "string"
+      },
+      "visionConfigId": {
+        "type": "string"
+      },
+      "maxMB": {
+        "type": "integer",
+        "default": 100,
+        "minimum": 1,
+        "maximum": 500
+      },
+      "maxMinutes": {
+        "type": "integer",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 120
+      },
+      "frameInterval": {
+        "type": "integer",
+        "default": 120,
+        "minimum": 30,
+        "maximum": 600
+      }
+    },
+    "required": [
+      "transcriptionConfigId",
+      "transcriptionModel",
+      "visionConfigId"
+    ],
+    "additionalProperties": false
+  },
+  "tools": [
+    {
+      "name": "parse",
+      "description": "完整解析已上传的视频，返回产物 ID 和带时间参考的摘要。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifactId"
+        ],
+        "additionalProperties": false
+      },
+      "permissions": [
+        "files",
+        "models",
+        "storage"
+      ],
+      "timeoutSec": 3600,
+      "retrySafe": true
+    }
+  ],
+  "templates": [
+    {
+      "id": "parse",
+      "name": "视频异步解析",
+      "steps": [
+        {
+          "id": "parse",
+          "kind": "tool",
+          "tool": "video__parse",
+          "arguments": {
+            "artifactId": "REPLACE_WITH_UPLOADED_FILE_ID"
+          }
+        }
+      ]
+    }
+  ]
+}
