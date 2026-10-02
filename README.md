@@ -1,27 +1,56 @@
 # 拾一 · 可扩展 AI 秘书
 
-Go 对话主干 + 独立 TypeScript 插件 + 三家 Agent SDK 适配 + Temporal 后台任务。提供 Web 管理端和 QQ 官方 C2C 私聊入口。
+Go 对话主干 + 独立 TypeScript 插件 + 三家 Agent SDK 适配 + Temporal 后台任务。提供 Web、QQ 官方机器人和 NapCat / OneBot 个人 QQ 私聊入口。
 
 ## 快速启动
 
-需要 Docker 与 Compose；从源码开发需要 Go 1.26、Node.js 22、npm 和 FFmpeg。
+需要 Make、Python 3、Docker 与支持 `--wait` 的 Compose；Mac 可使用 Colima 或 Docker Desktop 提供运行环境。Go、Node.js 和 FFmpeg 由镜像提供；从源码开发才需要在本机安装 Go 1.26、Node.js 22、npm 和 FFmpeg。
+
+在项目根目录执行：
 
 ```sh
-python3 scripts/init-env.py
-./scripts/compose up --build -d
+make
+```
+
+默认 `make` 会先准备 Docker 环境，再初始化 `.env`、构建镜像、在后台启动 PostgreSQL、Temporal、SDK 执行服务、后端、Web 和 NapCat，等待服务就绪后输出访问地址。首次构建需要下载镜像和依赖，后续启动会复用构建缓存。修改代码或 `.env` 后再次执行 `make` 即可应用更新。
+
+NapCat 是可选外部依赖。在 `.env` 设置 `NAPCAT_ENABLED=false` 后执行 `make`，只启动秘书主体，并停止原来运行的本地 NapCat（保留登录数据）。要连接其他 OneBot 服务，再设置 `ONEBOT_URL` 和 `ONEBOT_TOKEN`。也可临时用 `NAPCAT_ENABLED=false make` 验证。
+
+`make docker` 可单独准备 Docker 环境：已运行时直接复用；当前 Colima 环境停止时自动启动它；Mac 的 Docker Desktop 环境会自动唤起应用。当前为默认环境且安装了 Colima 时，会启动并选择项目的 `secretary` 环境。显式设置的远程地址或其他不可用环境会提示检查，不自动替换。
+
+```sh
+make docker                 # 只准备 Docker 环境
+make status                 # 查看服务状态
+make logs                   # 持续查看日志，Ctrl+C 退出
+make logs SERVICE=backend   # 只看后端日志
+make restart                # 重启现有容器
+make stop                   # 停止服务，保留容器和数据
+make down                   # 移除容器，保留数据卷
+make help                   # 查看命令说明
 ```
 
 打开 **http://localhost:5173**，使用本地 `.env` 中的 `ADMIN_PASSWORD` 登录。初始化脚本不会覆盖已有密钥。请备份 `MASTER_KEY`；丢失后无法解密已保存凭证。
 
-1. 在「系统与凭证」添加模型 Key。
-2. 在「执行配置」选择 API 或 SDK、模型、凭证和 Base URL。
-3. 在「对话」新建会话，选择人格与执行配置。
+1. 打开「系统与凭证 → 模型接入」，或左侧「模型配置」。
+2. 添加模型配置，选择 API 或 SDK、模型及 Base URL；可选用已有凭证，或在配置对话框内添加 Key 并自动选用。
+3. 在「对话」新建会话，选择人格与模型配置。
 4. 让秘书调用 `example__echo` 验证工具链。
 5. 在「插件」配置邮箱或视频能力，授权并启用；从任务模板创建后台工作。
 
-**三家 SDK、真实模型端点、真实邮箱和 QQ 账号仍需使用你自己的凭证联调。** 本地验收配置均以 `[本地验收]` 或 `[浏览器验收]` 命名，连接的是确定性测试端点，不能作为真实模型能力或效果证明。详见 [验收报告](docs/acceptance.md)。
+**CodeBuddy iOA + `glm-5.3` 已完成真实流式对话、原生会话续接和示例插件调用联调（2026-09-30）。** Claude、Codex、API 直连端点、真实邮箱和 QQ 仍需凭证联调。以 `[本地验收]` 或 `[浏览器验收]` 命名的配置连接确定性测试端点，不能作为真实模型能力或效果证明。详见 [验收报告](docs/acceptance.md)。
 
 ## 接入矩阵
+
+QQ 保留 `official`、`onebot` 两个逻辑通道键，具体收发实现由启动入口注入。`onebot` 默认连接 NapCat，也能连接其他兼容 OneBot 11 的服务。两种通道可同时启用；模型策略、人格和插件共用，会话保存渠道来源以路由回复和定时通知。非 OneBot 框架只需实现 `message.Sender` 和接收适配，再替换注册代码，见 [消息适配器开发与替换](docs/message-adapters.md)。
+
+个人 QQ 接入：
+
+1. `make` 后打开 [NapCat 登录页](http://localhost:6099/webui)，用 `.env` 中的 `NAPCAT_WEBUI_TOKEN` 登录页面，再扫码登录秘书 QQ。
+2. 打开 [管理端](http://localhost:5173) →「系统与凭证」→「个人 QQ」，刷新连接并填入当前登录 QQ。
+3. 填写允许联系人的另一个 QQ 号，选择模型配置及人格，开启接收并保存。
+4. 从允许的联系人账号向秘书 QQ 发私聊；会话及执行记录会同步出现在 Web。
+
+首版为私聊文本。默认拒绝未绑定联系人和群消息；QQ 图片、文件、语音暂不接入解析插件。NapCat WebUI 健康只代表页面可打开，实际登录和渠道状态以管理端为准。详细配置、升级及排错见 [QQ 运维说明](docs/operations.md#qq)。
 
 | 方式 | 实现 | 工具循环归属 |
 |---|---|---|
@@ -29,6 +58,8 @@ python3 scripts/init-env.py
 | API | OpenAI Chat Completions / Responses / Anthropic Messages | Go Direct 执行器 |
 
 API 配置支持 `credentialId + baseUrl + model + protocol`。Key 先写入加密凭证库，公开配置只保存引用。CodeBuddy 直连使用该端点实际支持的兼容协议。
+
+CodeBuddy 属于 SDK 提供商，不是接口协议。使用 CodeBuddy Agent SDK 时选择对应的 SDK 接入方式；使用 CodeBuddy 提供的兼容 API 时，按端点实际支持的 OpenAI 或 Anthropic 协议配置。
 
 OpenAI 兼容地址一般以 `/v1` 结束；框架追加 `/chat/completions` 或 `/responses`。Anthropic 地址可填写服务根地址或 `/v1`。不要填写完整接口路径或包含 Key 的查询参数。
 
@@ -40,6 +71,8 @@ SDK 使用独立 HOME、工作目录和原生会话数据。SDK 中断后停止�
 cmd/secretary/        Go 服务入口，HTTP + Temporal Worker
 internal/agent/      API 协议、工具循环、SDK 桥接
 internal/service/    对话、人格、管理 API、QQ、插件宿主
+internal/message/    独立收发契约：Sender、InboundMessage、StatusChecker
+internal/transport/  官方 QQ 与 OneBot HTTP 适配器（不依赖 service.App）
 internal/plugin/     包版本、MCP 子进程、权限、操作去重
 internal/job/        Temporal Workflow / Activity / Schedule
 internal/store/      PostgreSQL 存储与并发锁
@@ -82,7 +115,7 @@ npm test
 
 ## 首版边界
 
-- 单用户、单管理员、单个 Go 服务实例；QQ 仅官方私聊。
+- 单用户、单管理员、单个 Go 服务实例；QQ 支持官方机器人和一个 NapCat 个人账号的私聊。
 - 插件是经过管理员信任的本地代码，独立进程不等同于操作系统沙箱。
 - 邮箱支持 TLS IMAP、搜索、增量读取、摘要、事项提取、标记已读；不包含 SMTP 发送。
 - 视频支持上传文件、音频转写、抽样画面分析。默认 100 MB / 30 分钟，不抓取登录网站。缺少音轨或模型能力会失败并说明原因。

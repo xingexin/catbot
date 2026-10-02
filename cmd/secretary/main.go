@@ -57,12 +57,15 @@ func run() error {
 		MaxUploadMB: uploadMB,
 		DataDir:     data, PluginDir: plugins, InternalURL: env("INTERNAL_URL", "http://127.0.0.1:8080"), RuntimeURL: env("RUNTIME_URL", "http://127.0.0.1:8091"),
 		RuntimeToken: os.Getenv("RUNTIME_TOKEN"), MasterKey: os.Getenv("MASTER_KEY"), AdminPassword: os.Getenv("ADMIN_PASSWORD"), CookieSecure: os.Getenv("COOKIE_SECURE") == "true",
-		QQAppID: os.Getenv("QQ_APP_ID"), QQSecret: os.Getenv("QQ_SECRET"), QQUser: os.Getenv("QQ_USER_OPENID"), QQConfigID: os.Getenv("QQ_CONFIG_ID"), QQPersonaID: os.Getenv("QQ_PERSONA_ID"), QQBaseURL: env("QQ_BASE_URL", "https://api.bot.qq.com"),
+		QQAppID: os.Getenv("QQ_APP_ID"), QQUser: os.Getenv("QQ_USER_OPENID"), QQConfigID: os.Getenv("QQ_CONFIG_ID"), QQPersonaID: os.Getenv("QQ_PERSONA_ID"),
 	})
 	if err != nil {
 		return err
 	}
 	defer a.Close()
+	if err := registerChannels(a); err != nil {
+		return err
+	}
 	c, err := client.DialContext(ctx, client.Options{HostPort: env("TEMPORAL_ADDRESS", "127.0.0.1:7233"), Namespace: env("TEMPORAL_NAMESPACE", "default")})
 	if err != nil {
 		return err
@@ -70,7 +73,7 @@ func run() error {
 	defer c.Close()
 	engine := job.New(c, s, a)
 	a.Scheduler = engine
-	a.Notifier = a.SendQQ
+	a.Notifier = a.SendMessage
 	if err := a.Bootstrap(ctx); err != nil {
 		return err
 	}

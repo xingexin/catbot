@@ -62,11 +62,12 @@ func testApp(t *testing.T) *App {
 	if err := os.MkdirAll(plugins, 0700); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(store.NewMemory(), Options{DataDir: root, PluginDir: plugins, MasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32)), AdminPassword: "test-password", RuntimeToken: "test-runtime", QQSecret: "test-qq-secret", QQUser: "bound-user", QQConfigID: "config"})
+	a, err := New(store.NewMemory(), Options{DataDir: root, PluginDir: plugins, MasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32)), AdminPassword: "test-password", RuntimeToken: "test-runtime", QQUser: "bound-user", QQConfigID: "config"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(a.Close)
+	registerTestOfficial(t, a, "")
 	if err := a.Bootstrap(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +129,7 @@ func TestQQSignatureBindingAndDuplicate(t *testing.T) {
 	a := testApp(t)
 	body := []byte(`{"op":0,"t":"C2C_MESSAGE_CREATE","d":{"id":"event1","content":"提醒","author":{"user_openid":"bound-user"}}}`)
 	timestamp := "1725442341"
-	signature := hex.EncodeToString(ed25519.Sign(qqKey(a.Options.QQSecret), append([]byte(timestamp), body...)))
+	signature := hex.EncodeToString(ed25519.Sign(testQQKey(), append([]byte(timestamp), body...)))
 	send := func(sig string) int {
 		r := httptest.NewRequest("POST", "/qq/webhook", bytes.NewReader(body))
 		r.Header.Set("X-Signature-Timestamp", timestamp)

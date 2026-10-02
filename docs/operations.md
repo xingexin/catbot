@@ -11,35 +11,49 @@
 | 5173 | Web |
 | 5442 | PostgreSQL |
 | 7233 | Temporal |
+| 6099 | NapCat 登录与连接管理（仅绑定 localhost） |
 
 公网 QQ 回调需要自己的 HTTPS 域名与反向代理。开启 HTTPS 后设置 `COOKIE_SECURE=true`。不要对公网暴露 `/internal`、数据库或 Temporal 原生端口。
 
 ```sh
-./scripts/compose ps
-./scripts/compose logs --tail=100 backend runtime temporal
-./scripts/compose down
+make
+make status
+make logs SERVICE=backend
+make down
 ```
 
-`down` 保留数据卷；不要在需要保留数据时使用 `down -v`。备份需要同时保存数据库、app-data、sdk 卷和 MASTER_KEY。插件包与凭证历史快照暂不自动清理，避免删除在途任务依赖。
+`down` 保留数据卷；不要在需要保留数据时使用 `down -v`。备份需要同时保存数据库、app-data、sdk、napcat-qq 卷、`data/napcat/config` 和 MASTER_KEY。插件包与凭证历史快照暂不自动清理，避免删除在途任务依赖。
 
-本次本机验收使用独立 Colima profile `secretary`。若需要：
+Nginx 通过 Docker 内置 DNS 定期刷新 backend 地址，避免 `make` 重建后端后继续代理到旧容器 IP。配置使用变量形式的 `proxy_pass` 和 5 秒 DNS 缓存；重建期间仍会有短暂不可用，不是不中断切换。参考 [Nginx resolver](https://nginx.org/en/docs/http/ngx_http_core_module.html#resolver)。
+
+本机使用独立 Colima profile `secretary`。默认 `make` 已包含 Docker 环境启动，也可以单独准备环境：
 
 ```sh
-colima start secretary
-DOCKER_CONTEXT=colima-secretary ./scripts/compose up -d
+make docker
+make
 ```
+
+新建项目 Colima 环境默认磁盘 60 GB（镜像、QQ 客户端和构建缓存需要空间）。已有 20 GB 环境不会在每次启动时强制改动；若数据库日志出现 `No space left on device`，可执行 `colima --profile secretary stop`，再 `colima --profile secretary start --disk 60` 后运行 `make`。扩容保留数据卷，不需要删除数据库或登录状态。
 
 ## SDK
 
 锁文件当前使用：
 
-- `@tencent-ai/agent-sdk 0.1.30`
+- `@tencent-ai/agent-sdk 0.3.268`（固定版本；旧版 0.1.30 的会话恢复会误返回历史结果）
 - `@anthropic-ai/claude-agent-sdk 0.2.141`
 - `@openai/codex-sdk 0.107.0`
 
 执行服务为各 SDK 设置独立 HOME，不读取开发机其他项目或浏览器中的登录信息。可以在凭证库保存对应官方 SDK 支持的 Key。订阅账号是否能用某种认证方式，以厂商 SDK 条款和文档为准；不能把通用兼容 Key 当作三家 SDK 通用凭证。
 
 Claude 适配使用 `ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL`。CodeBuddy 适配使用 SDK 支持的环境配置；按账号区域设置 `CODEBUDDY_INTERNET_ENVIRONMENT`。Codex 使用构造参数 `apiKey / baseUrl`。原生会话目录在 SDK 数据卷内按提供商分开。
+
+CodeBuddy iOA 接入：在 `.env` 设置 `CODEBUDDY_INTERNET_ENVIRONMENT=ioa` 后执行 `make`。打开「系统与凭证 → 模型接入」（或左侧「模型配置」），添加配置并选择 CodeBuddy Agent SDK；在配置对话框内添加 iOA Key 后自动选用，也可选用已保存的凭证。保存后的配置使用 `kind=sdk / provider=codebuddy`；GLM 5.3 的模型 ID 为 `glm-5.3`，Base URL 留空使用官方路由。`glm5.3` 会收到模型不存在的 400 响应。
+
+「接口协议」用于模型 API 直连，CodeBuddy Agent SDK 在 SDK 接入方式中选择。若连接 CodeBuddy 的兼容 API，则根据端点支持的协议选择 OpenAI Chat Completions、Responses 或 Anthropic Messages。
+
+本项目提供真实联调脚本 `node scripts/codebuddy-smoke.mjs`，默认使用配置 `codebuddy-ioa-glm53`（可用 `TEST_CODEBUDDY_CONFIG` 指定）。它创建仅授权回显工具的测试人格与会话，验证流式回复、原生会话续接及实际工具事件，将报告保存到 `data/acceptance/codebuddy-live-report.json`。脚本使用服务端已保存的凭证，不读取或输出 API Key；运行会实际调用模型。
+
+CodeBuddy 的业务 MCP 使用 `alwaysLoad: true`。SDK 默认延迟加载 MCP，而本框架禁用 SDK 内置工具搜索；缺少此设置时可能出现 MCP 显示已连接但模型请求没有工具的情况。判断工具调用成功应检查 Go 网关的 `tool.completed` 事件，不能只看模型的回复。
 
 对三家 SDK 分别完成：
 
@@ -52,6 +66,40 @@ Claude 适配使用 `ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL`。CodeBuddy 适配�
 不会因为 SDK 认证失败而自动改用 API 直连。
 
 ## QQ
+
+两种通道可同时工作。Web「系统与凭证」分别显示通道和实际接入实现；会话来源决定回复和定时通知的路由。业务发送依赖 `message.Sender`，接收统一为 `InboundMessage`。更换实现只改启动依赖与注册，见 [消息适配器开发与替换](message-adapters.md)。
+
+### 个人号：NapCat / OneBot 11
+
+默认 `make` 启动固定版本 `mlikiowa/napcat-docker:v4.18.28`，支持本机 ARM64。`make docker` 仍只准备 Docker 运行环境。
+
+`.env` 的 `NAPCAT_ENABLED` 默认 `true`。设为 `false` 后 `make` 不启动本地 NapCat，并停止已运行的 NapCat 容器，保留配置与数据卷；其余服务照常启动。`ONEBOT_URL` 可指向另一个兼容服务。空值在 NapCat 启用时使用容器地址，关闭时表示不接入 OneBot。管理端在未使用本地 NapCat 时隐藏本地登录入口。Compose 的 NapCat profile 由 `scripts/compose` 自动选择。
+
+1. 打开 `http://localhost:6099/webui`，使用 `.env` 的 `NAPCAT_WEBUI_TOKEN` 登录。扫码登录作为秘书的 QQ。
+2. 打开秘书管理端「系统与凭证」的个人 QQ 卡片，刷新连接，点击「填入当前登录 QQ」。
+3. 填写允许联系人的 QQ 号（用另一个账号给秘书发私聊），选择模型配置和人格，打开启用开关并保存。
+4. 从允许的联系人发送文本；在 Web 对话和运行记录中查看执行，在投递记录中查看 `provider=onebot`、状态与平台消息 ID。
+
+`ONEBOT_TOKEN` 是框架与 NapCat 之间的机器凭证，`NAPCAT_WEBUI_TOKEN` 是 NapCat 管理页面的初始密码，两者不同于秘书管理员密码。初始化脚本只补充缺失项，保留已有 MASTER_KEY、管理员密码与 SDK 配置；不打印生成的令牌。
+
+容器内 HTTP API 为 `http://napcat:3000`，不映射到宿主机。事件上报地址为 `http://backend:8080/qq/onebot/events`。两侧使用同一个 `ONEBOT_TOKEN`；上报为 HMAC-SHA1 签名，API 调用为 Bearer token。配置自动写入 `data/napcat/config/onebot11.json`，首次登录后 NapCat 生成 `onebot11_<QQ>.json`。运行状态存入 `napcat-qq` 数据卷。不要给容器增加 privileged 或挂载 Docker socket。
+
+已有 NapCat 或其他兼容 OneBot 11 服务也可使用：在 `.env` 设置 `NAPCAT_ENABLED=false`、`ONEBOT_URL / ONEBOT_TOKEN`，无需修改 Compose。外部服务启用 HTTP Server 与 HTTP Client，将事件指向本服务 `/qq/onebot/events`，`messagePostFormat=array`。本地 Go 进程需要导出相同环境变量。首版单实例只绑定一个个人 QQ 登录账号。
+
+排错：
+
+- `unavailable`：NapCat 尚未扫码登录、离线或 API/令牌不一致。健康检查只探测 WebUI，无法代表 QQ 在线。
+- `disabled`：账号在线，但尚未启用秘书绑定；保存联系人配置后再刷新。
+- `account_mismatch`：当前登录账号和绑定不同。确认后重新绑定，旧账号会话不会发给新账号。
+- 更换 `ONEBOT_TOKEN` 时，需要同步更新默认与已登录账号的 OneBot HTTP Server / Client token，再重启相关服务；初始化脚本不会覆盖已有账号配置。
+- 若在 NapCat 中修改了 WebUI 密码，以当前 `data/napcat/config/webui.json` 为准，`.env` 中仍是初始值。
+- 停用后不再接受新消息或发送通知；已排队或执行的模型任务可在运行记录取消。
+
+仅支持私聊文本；混合消息中的非文本片段会标记未解析。字符串 CQ 消息请改为 array 格式。每次最多回复 1800 字，完整结果保存在 Web。网络中断和缺少发送回执会标记 `uncertain`；不会自动再次发送。HTTP 事件推送没有补齐离线消息的保证。
+
+参考：[NapCat 配置](https://napneko.github.io/config/basic)、[官方 Docker 仓库](https://github.com/NapNeko/NapCat-Docker)、[OneBot 11 HTTP 上报](https://github.com/botuniverse/onebot-11/blob/master/communication/http-post.md)。
+
+### 官方机器人
 
 配置 `QQ_APP_ID / QQ_SECRET / QQ_USER_OPENID / QQ_CONFIG_ID`，可指定 `QQ_PERSONA_ID`。OpenID 必须是机器人官方私聊回调中的 `author.user_openid`，不是普通 QQ 号码。
 

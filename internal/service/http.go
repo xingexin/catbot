@@ -65,7 +65,8 @@ func (a *App) Handler() http.Handler {
 		JSON(w, 200, map[string]any{"status": "ok"})
 	})
 	root.HandleFunc("POST /api/login", a.login)
-	root.HandleFunc("POST /qq/webhook", a.qqWebhook)
+	root.HandleFunc("POST /qq/webhook", a.channelWebhook("official"))
+	root.HandleFunc("POST /qq/onebot/events", a.channelWebhook("onebot"))
 	root.Handle("/internal/", a.internalHandler())
 	api := http.NewServeMux()
 	api.HandleFunc("POST /api/logout", func(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +78,8 @@ func (a *App) Handler() http.Handler {
 	})
 	api.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) { JSON(w, 200, map[string]string{"username": "admin"}) })
 	api.HandleFunc("GET /api/status", a.status)
+	api.HandleFunc("GET /api/qq", a.qqConnections)
+	api.HandleFunc("PUT /api/qq/onebot", a.saveOneBotBinding)
 	for path, kind := range map[string]string{"configs": "config", "personas": "persona", "sessions": "session", "runs": "run", "tasks": "task", "executions": "execution", "plugins": "plugin", "artifacts": "artifact", "notifications": "notification", "deliveries": "delivery"} {
 		api.HandleFunc("GET /api/"+path, func(w http.ResponseWriter, r *http.Request) {
 			list, err := a.Store.List(r.Context(), kind)
@@ -326,7 +329,7 @@ func (a *App) auth(next http.Handler) http.Handler {
 	})
 }
 func (a *App) status(w http.ResponseWriter, r *http.Request) {
-	result := map[string]any{"database": "ok", "temporal": "unavailable", "runtime": "unavailable", "qqConfigured": a.Options.QQAppID != "" && a.Options.QQUser != ""}
+	result := map[string]any{"database": "ok", "temporal": "unavailable", "runtime": "unavailable", "qqConfigured": a.channelStatus(r.Context(), "official").Configured}
 	if err := a.Store.Ping(r.Context()); err != nil {
 		result["database"] = "unavailable"
 	}
@@ -499,6 +502,15 @@ func (a *App) saveSession(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) deleteReferenced(w http.ResponseWriter, r *http.Request, kind string) {
 	id := r.PathValue("id")
+	binding, err := a.oneBotBinding(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if (kind == "config" && binding.ConfigID == id) || (kind == "persona" && binding.PersonaID == id) {
+		fail(w, errors.New("record is used by QQ connection defaults"))
+		return
+	}
 	sessions, err := store.All[domain.Session](r.Context(), a.Store, "session")
 	if err != nil {
 		fail(w, err)

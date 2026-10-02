@@ -39,6 +39,8 @@ import {
 } from "@ant-design/icons";
 import { api, downloadJSON, parseJSON, pretty } from "./api";
 import { Editor } from "./editor";
+import { QQConnections } from "./qq";
+import { ModelConnections } from "./models";
 const { TextArea } = Input;
 export type Row = Record<string, any>;
 const pages = [
@@ -47,7 +49,7 @@ const pages = [
   { key: "artifacts", icon: <FileTextOutlined />, label: "文件与解析" },
   { key: "personas", icon: <UserOutlined />, label: "人格" },
   { key: "plugins", icon: <AppstoreOutlined />, label: "插件" },
-  { key: "configs", icon: <ApiOutlined />, label: "执行配置" },
+  { key: "configs", icon: <ApiOutlined />, label: "模型配置" },
   { key: "runs", icon: <HistoryOutlined />, label: "运行记录" },
   { key: "settings", icon: <SettingOutlined />, label: "系统与凭证" },
 ];
@@ -59,7 +61,7 @@ const descriptions: Record<string, string> = {
   plugins: "独立安装业务能力，让秘书逐步成长。",
   configs: "选择 Agent SDK，或通过 Key 与 Base URL 直连模型。",
   runs: "检查模型调用、工具结果与后台任务状态。",
-  settings: "管理服务连接和仅保存在服务端的凭证。",
+  settings: "接入模型与 Agent SDK，管理 QQ 连接和服务凭证。",
 };
 const statusColor: Record<string, string> = {
   completed: "success",
@@ -163,7 +165,6 @@ export function Secretary() {
       form.setFieldsValue({
         kind: "api",
         protocol: "openai-chat",
-        provider: "codex",
         maxSteps: 12,
         maxTokens: 4096,
         timeoutSec: 180,
@@ -450,7 +451,12 @@ export function Secretary() {
                   <small>
                     {rows("personas").find((p) => p.id === s.personaId)?.name ??
                       s.personaId}{" "}
-                    · {s.channel}
+                    ·{" "}
+                    {s.channel === "qq"
+                      ? s.channelProvider === "onebot"
+                        ? "QQ 个人号"
+                        : "QQ 官方"
+                      : s.channel}
                   </small>
                 </span>
               </button>
@@ -461,7 +467,7 @@ export function Secretary() {
             <div className="chat-empty">
               <div className="mark">拾</div>
               <h2>今天有什么需要安排？</h2>
-              <p>选择执行配置，开启第一段对话。</p>
+              <p>选择模型配置，开启第一段对话。</p>
               <div className="prompt-cards">
                 <Card size="small">“帮我整理今天的邮件”</Card>
                 <Card size="small">“每周五下午提醒我复盘”</Card>
@@ -488,7 +494,7 @@ export function Secretary() {
                     open("config");
                   }}
                 >
-                  先添加执行配置
+                  先添加模型配置
                 </Button>
               )}
             </div>
@@ -1136,44 +1142,78 @@ export function Secretary() {
   else
     content = (
       <>
-        <div className="cards">
+        <ModelConnections
+          configs={rows("configs")}
+          credentials={rows("secrets")}
+          onAdd={(kind) => open("config", { kind })}
+          onEdit={(config) => open("config", config)}
+          onTest={(config) =>
+            void act(
+              async () =>
+                setInspect(await api("/configs/" + config.id + "/test", {})),
+              "检查完成",
+            )
+          }
+          onDelete={(config) =>
+            void act(() => api("/configs/" + config.id, undefined, "DELETE"))
+          }
+        />
+        <div className="cards service-status">
           <Card title="服务状态">
             <p>
               PostgreSQL{" "}
-              <Status value={status.database === "ok" ? "active" : "error"} />
+              <Status
+                value={
+                  status.database === undefined
+                    ? "检查中"
+                    : status.database === "ok"
+                      ? "active"
+                      : "error"
+                }
+              />
             </p>
             <p>
               Temporal{" "}
-              <Status value={status.temporal === "ok" ? "active" : "error"} />
+              <Status
+                value={
+                  status.temporal === undefined
+                    ? "检查中"
+                    : status.temporal === "ok"
+                      ? "active"
+                      : "error"
+                }
+              />
             </p>
             <p>
               SDK 服务{" "}
               <Status
-                value={typeof status.runtime === "object" ? "active" : "error"}
+                value={
+                  status.runtime === undefined
+                    ? "检查中"
+                    : typeof status.runtime === "object"
+                      ? "active"
+                      : "error"
+                }
               />
             </p>
-            <p>QQ {status.qqConfigured ? "已配置" : "待配置"}</p>
+
             <Alert
               type="info"
               message="连接正常不代表真实模型已联调。"
               description="通过对话分别检查各 SDK 和模型协议，并在运行记录中核对工具结果。"
             />
           </Card>
-          <Card title="QQ 私聊绑定">
-            <p>
-              在部署环境中设置 QQ_APP_ID、QQ_SECRET、QQ_USER_OPENID 和
-              QQ_CONFIG_ID。只有绑定的用户可以创建会话。
-            </p>
-            <p className="muted">
-              回调地址：<code>/qq/webhook</code>
-              <br />
-              执行配置 ID 可在配置编辑窗口查看。
-            </p>
-            <p className="muted">
-              主动通知受 QQ 平台权限和额度约束，失败会保留投递记录。
-            </p>
-          </Card>
         </div>
+        <QQConnections
+          configs={rows("configs").map((x) => ({
+            id: String(x.id),
+            name: String(x.name),
+          }))}
+          personas={rows("personas").map((x) => ({
+            id: String(x.id),
+            name: String(x.name),
+          }))}
+        />
         <div className="toolbar">
           <h3>
             <KeyOutlined /> 凭证库
@@ -1270,9 +1310,14 @@ export function Secretary() {
         rows={rows}
         onSave={save}
         onClose={() => setEdit(null)}
-        onSecrets={() => {
-          setEdit(null);
-          setPage("settings");
+        onCreateCredential={async (value) => {
+          const credential = await api("/secrets", value);
+          const record = { ...credential, name: value.name };
+          setData((current) => ({
+            ...current,
+            secrets: [...(current.secrets ?? []), record],
+          }));
+          return record;
         }}
       />
       <Drawer

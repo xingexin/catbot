@@ -81,6 +81,10 @@ services:
       QQ_CONFIG_ID: ${QQ_CONFIG_ID:-}
       QQ_PERSONA_ID: ${QQ_PERSONA_ID:-secretary}
       QQ_BASE_URL: ${QQ_BASE_URL:-https://api.bot.qq.com}
+      NAPCAT_ENABLED: ${NAPCAT_ENABLED:-true}
+      ONEBOT_URL: ${ONEBOT_URL-http://napcat:3000}
+      ONEBOT_TOKEN: ${ONEBOT_TOKEN:-}
+      NAPCAT_WEB_URL: http://localhost:${NAPCAT_WEB_PORT:-6099}/webui
     volumes: [app-data:/app/data]
     healthcheck:
       test:
@@ -99,7 +103,26 @@ services:
       backend: { condition: service_healthy }
     ports: ["127.0.0.1:${WEB_PORT:-5173}:80"]
     restart: unless-stopped
+  napcat:
+    profiles: [napcat]
+    image: mlikiowa/napcat-docker:v4.18.28
+    hostname: secretary-qq
+    environment:
+      NAPCAT_UID: "1000"
+      NAPCAT_GID: "1000"
+      WEBUI_TOKEN: ${NAPCAT_WEBUI_TOKEN:-}
+    ports: ["127.0.0.1:${NAPCAT_WEB_PORT:-6099}:6099"]
+    volumes:
+      - napcat-qq:/app/.config/QQ
+      - ./data/napcat/config:/app/napcat/config
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:6099/webui/"]
+      interval: 10s
+      start_period: 30s
+      retries: 15
+    restart: unless-stopped
 volumes:
   postgres:
   app-data:
   sdk:
+  napcat-qq:

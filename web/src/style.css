@@ -147,6 +147,28 @@ textarea {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 20px;
 }
+.qq-connections {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  align-items: start;
+}
+.service-status {
+  grid-template-columns: 1fr;
+  margin-bottom: 20px;
+}
+.model-connections {
+  margin-bottom: 24px;
+}
+.model-connections .toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 0;
+}
+.service-status .ant-card-body {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+}
 .ant-card {
   border-color: #e4e9e0;
   box-shadow: 0 2px 7px #344e3503;

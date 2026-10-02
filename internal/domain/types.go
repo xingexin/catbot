@@ -55,16 +55,18 @@ type Persona struct {
 }
 
 type Session struct {
-	ID           string            `json:"id"`
-	Title        string            `json:"title"`
-	PersonaID    string            `json:"personaId"`
-	ConfigID     string            `json:"configId"`
-	Channel      string            `json:"channel"`
-	Recipient    string            `json:"recipient,omitempty"`
-	Messages     []Message         `json:"messages"`
-	Summary      string            `json:"summary"`
-	Native       map[string]string `json:"native"`
-	ActiveConfig string            `json:"activeConfig,omitempty"`
+	ID              string            `json:"id"`
+	Title           string            `json:"title"`
+	PersonaID       string            `json:"personaId"`
+	ConfigID        string            `json:"configId"`
+	Channel         string            `json:"channel"`
+	ChannelProvider string            `json:"channelProvider,omitempty"`
+	ChannelAccount  string            `json:"channelAccount,omitempty"`
+	Recipient       string            `json:"recipient,omitempty"`
+	Messages        []Message         `json:"messages"`
+	Summary         string            `json:"summary"`
+	Native          map[string]string `json:"native"`
+	ActiveConfig    string            `json:"activeConfig,omitempty"`
 }
 
 type Tool struct {

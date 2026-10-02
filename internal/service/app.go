@@ -33,7 +33,7 @@ type Scheduler interface {
 type Options struct {
 	MaxUploadMB                                                                         int
 	DataDir, PluginDir, InternalURL, RuntimeURL, RuntimeToken, MasterKey, AdminPassword string
-	QQAppID, QQSecret, QQUser, QQBaseURL                                                string
+	QQAppID, QQUser                                                                     string
 	QQConfigID, QQPersonaID                                                             string
 	CookieSecure                                                                        bool
 }
@@ -46,6 +46,7 @@ type App struct {
 	Direct    agent.Executor
 	SDK       agent.Executor
 	Notifier  func(context.Context, string, string, string) error
+	channels  map[string]Channel
 	ctx       context.Context
 	cancel    context.CancelFunc
 	mu        sync.Mutex
@@ -67,6 +68,7 @@ func New(s store.Store, o Options) (*App, error) {
 	a.Plugins = plugin.New(s, v, o.PluginDir, o.DataDir, o.InternalURL, a.Token)
 	a.Direct = &agent.Direct{Model: &agent.Model{}, Tools: a}
 	a.SDK = &agent.Bridge{URL: o.RuntimeURL, Token: o.RuntimeToken, GatewayURL: o.InternalURL + "/internal/mcp", RunToken: a.Token}
+	a.channels = make(map[string]Channel)
 	return a, nil
 }
 func (a *App) Token(scope string) string {
@@ -387,7 +389,7 @@ func (a *App) Execute(ctx context.Context, id string) (domain.Run, error) {
 	_ = a.emit(finishCtx, id, "finished", map[string]any{"status": run.Status, "result": run.Result, "usage": run.Usage})
 	if runErr == nil && session.Channel == "qq" && a.Notifier != nil {
 		if err := a.Notifier(finishCtx, session.ID, run.Result, "reply:"+id); err != nil {
-			slog.Warn("QQ notification failed", "runId", id, "error", err)
+			slog.Warn("message notification failed", "runId", id, "error", err)
 		}
 	}
 	return run, runErr

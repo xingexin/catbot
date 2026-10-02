@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import {
   Alert,
+  App,
   Button,
   Card,
   Checkbox,
@@ -50,15 +52,44 @@ export function Editor({
   rows,
   onSave,
   onClose,
-  onSecrets,
+  onCreateCredential,
 }: {
   edit: { kind: string; value: Row } | null;
   form: FormInstance;
   rows: (name: string) => Row[];
   onSave: () => Promise<any>;
   onClose: () => void;
-  onSecrets: () => void;
+  onCreateCredential: (value: { name: string; value: string }) => Promise<Row>;
 }) {
+  const [credentialOpen, setCredentialOpen] = useState(false);
+  const [savingCredential, setSavingCredential] = useState(false);
+  const [credentialForm] = Form.useForm();
+  const { message } = App.useApp();
+  useEffect(() => {
+    if (!edit) {
+      setCredentialOpen(false);
+      credentialForm.resetFields();
+    }
+  }, [edit, credentialForm]);
+  async function saveCredential() {
+    if (savingCredential) return;
+    try {
+      const value = await credentialForm.validateFields();
+      setSavingCredential(true);
+      const record = await onCreateCredential({
+        name: value.name.trim(),
+        value: value.value.trim(),
+      });
+      form.setFieldValue("credentialId", record.id);
+      setCredentialOpen(false);
+      credentialForm.resetFields();
+      message.success("API Key 已保存并选用");
+    } catch (error) {
+      if (error instanceof Error) message.error(error.message);
+    } finally {
+      setSavingCredential(false);
+    }
+  }
   return (
     <Modal
       open={!!edit}
@@ -66,7 +97,7 @@ export function Editor({
         edit
           ? (
               {
-                config: "执行配置",
+                config: "模型配置",
                 persona: "人格设置",
                 session: "会话设置",
                 secret: "添加凭证",
@@ -77,7 +108,14 @@ export function Editor({
             )[edit.kind]
           : ""
       }
-      onCancel={onClose}
+      onCancel={() => {
+        if (!credentialOpen) onClose();
+      }}
+      keyboard={!credentialOpen}
+      maskClosable={!credentialOpen}
+      closable={!credentialOpen}
+      okButtonProps={{ disabled: credentialOpen }}
+      cancelButtonProps={{ disabled: credentialOpen }}
       onOk={onSave}
       width={edit?.kind === "task" ? 800 : 640}
       forceRender
@@ -93,7 +131,11 @@ export function Editor({
             >
               <Input />
             </Form.Item>
-            <Form.Item name="kind" label="执行方式">
+            <Form.Item
+              name="kind"
+              label="接入方式"
+              extra="使用 CodeBuddy、Claude 或 Codex SDK 时，请选择 Agent SDK。"
+            >
               <Select
                 options={[
                   { value: "api", label: "模型 API 直连" },
@@ -104,8 +146,13 @@ export function Editor({
             <Form.Item noStyle shouldUpdate>
               {() =>
                 form.getFieldValue("kind") === "sdk" ? (
-                  <Form.Item name="provider" label="Agent SDK">
+                  <Form.Item
+                    name="provider"
+                    label="Agent SDK"
+                    rules={[{ required: true, message: "请选择 Agent SDK" }]}
+                  >
                     <Select
+                      placeholder="选择 CodeBuddy、Claude 或 Codex"
                       options={[
                         { value: "codebuddy", label: "CodeBuddy Agent SDK" },
                         { value: "claude", label: "Claude Agent SDK" },
@@ -114,7 +161,11 @@ export function Editor({
                     />
                   </Form.Item>
                 ) : (
-                  <Form.Item name="protocol" label="接口协议">
+                  <Form.Item
+                    name="protocol"
+                    label="接口协议"
+                    extra="这里选择 API 的请求格式；请按你的 Base URL 实际支持的协议选择。"
+                  >
                     <Select
                       options={[
                         {
@@ -144,8 +195,18 @@ export function Editor({
               rows={rows("secrets")}
               required={false}
             />
-            <Button type="link" onClick={onSecrets}>
-              到凭证库添加 Key
+            <Button
+              type="link"
+              onClick={() => {
+                credentialForm.resetFields();
+                credentialForm.setFieldValue(
+                  "name",
+                  form.getFieldValue("name") || "模型 API Key",
+                );
+                setCredentialOpen(true);
+              }}
+            >
+              添加 API Key
             </Button>
             <div className="form-grid">
               <Form.Item name="maxSteps" label="最大循环步数">
@@ -233,7 +294,7 @@ export function Editor({
             </Form.Item>
             <SelectField
               name="configId"
-              label="执行配置"
+              label="模型配置"
               rows={rows("configs")}
             />
             <SelectField
@@ -409,7 +470,7 @@ export function Editor({
             <div className="form-grid">
               <SelectField
                 name="configId"
-                label="执行配置"
+                label="模型配置"
                 rows={rows("configs")}
               />
               <SelectField
@@ -537,6 +598,43 @@ export function Editor({
           </>
         )}
       </Form>
+      <Modal
+        open={credentialOpen}
+        title="添加 API Key"
+        forceRender
+        okText="保存并选用"
+        cancelText="取消"
+        confirmLoading={savingCredential}
+        closable={!savingCredential}
+        maskClosable={!savingCredential}
+        keyboard={!savingCredential}
+        onOk={saveCredential}
+        onCancel={() => {
+          if (savingCredential) return;
+          setCredentialOpen(false);
+          credentialForm.resetFields();
+        }}
+      >
+        <Form name="model-credential" form={credentialForm} layout="vertical">
+          <Form.Item
+            name="name"
+            label="凭证名称"
+            rules={[{ required: true, whitespace: true }]}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="value"
+            label="API Key"
+            rules={[{ required: true, whitespace: true }]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <p className="muted">
+            Key 加密保存在服务端。保存后自动选用于当前配置；列表不显示原文。
+          </p>
+        </Form>
+      </Modal>
     </Modal>
   );
 }

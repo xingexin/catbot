@@ -91,14 +91,14 @@ try {
     });
   }
   await page.getByRole("button", { name: /刷\s*新/ }).click();
-  await page.getByRole("menuitem", { name: "执行配置" }).click();
+  await page.getByRole("menuitem", { name: "模型配置" }).click();
   await page.getByRole("button", { name: "添加配置" }).click();
   await page.getByLabel("配置名称").fill("[浏览器验收] API");
   await page.getByLabel("Model", { exact: true }).fill("fixture-only");
   await page.getByLabel("Base URL").fill("http://fixture:9090/v1");
   await page.getByRole("button", { name: /确\s*定/ }).click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
-  report.browser.push("create execution config through form");
+  report.browser.push("create model config through form");
   await page.getByRole("menuitem", { name: "对话" }).click();
   await page.getByRole("button", { name: /本地验收.*openai-chat/ }).click();
   const prompt = "再调用一次示例工具 · " + crypto.randomUUID().slice(0, 8);

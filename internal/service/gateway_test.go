@@ -69,11 +69,11 @@ func TestQQUncertainDeliveryIsRecordedWithoutResend(t *testing.T) {
 		_ = conn.Close()
 	}))
 	defer server.Close()
-	a.Options.QQBaseURL = server.URL
+	registerTestOfficial(t, a, server.URL)
 	_ = a.Vault.Set(t.Context(), "qq-test", "fixture", "fixture-token")
 	_ = a.Store.Put(t.Context(), "qq-access", "current", qqAccess{ID: "qq-test", Expires: time.Now().Add(time.Hour)})
 	_ = a.Store.Put(t.Context(), "session", "qq", domain.Session{ID: "qq", Channel: "qq", Recipient: "bound-user"})
-	if err := a.SendQQ(t.Context(), "qq", "hello", "stable-delivery"); err == nil {
+	if err := a.SendMessage(t.Context(), "qq", "hello", "stable-delivery"); err == nil {
 		t.Fatal("broken connection accepted")
 	}
 	var d delivery
@@ -83,7 +83,7 @@ func TestQQUncertainDeliveryIsRecordedWithoutResend(t *testing.T) {
 	if d.Status != "uncertain" {
 		t.Fatal(d)
 	}
-	if err := a.SendQQ(t.Context(), "qq", "hello", "stable-delivery"); err == nil || !strings.Contains(err.Error(), "uncertain") {
+	if err := a.SendMessage(t.Context(), "qq", "hello", "stable-delivery"); err == nil || !strings.Contains(err.Error(), "uncertain") {
 		t.Fatal(err)
 	}
 	if count.Load() != 1 {

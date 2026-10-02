@@ -41,6 +41,14 @@ export interface RunEvent {
 }
 export type Sink = (event: RunEvent) => Promise<void>;
 
+export function sdkText(text: string): string {
+  // NUL is invalid in PostgreSQL JSONB. Reject malformed provider output before
+  // emitting it, so the run records the provider error instead of a SQL failure.
+  if (text.includes("\0"))
+    throw new Error("SDK returned malformed text containing NUL characters");
+  return text;
+}
+
 export function promptFor(input: RunRequest): string {
   const history = input.nativeId
     ? []
@@ -140,6 +148,9 @@ export function commonOptions(
         type: "http" as const,
         url: input.gatewayUrl,
         headers: { Authorization: "Bearer " + input.gatewayToken },
+        // CodeBuddy defers MCP tools by default. The secretary disables built-in
+        // ToolSearch, so business tools must be loaded before the first prompt.
+        ...(input.config.provider === "codebuddy" ? { alwaysLoad: true } : {}),
       },
     },
     env: isolatedEnvironment(home),
@@ -248,7 +259,13 @@ export async function execute(
     if (process.env.CODEBUDDY_INTERNET_ENVIRONMENT)
       env.CODEBUDDY_INTERNET_ENVIRONMENT =
         process.env.CODEBUDDY_INTERNET_ENVIRONMENT;
-    const options: BuddyOptions = { ...common, env, canUseTool };
+    const options: BuddyOptions = {
+      ...common,
+      env,
+      canUseTool,
+      tools: [],
+      strictMcpConfig: true,
+    };
     query = buddyQuery({ prompt: promptFor(input), options });
   }
   let finished = false;
@@ -257,6 +274,9 @@ export async function execute(
       type: string;
       subtype?: string;
       session_id?: string;
+      model?: string;
+      tools?: string[];
+      mcp_servers?: { name: string; status: string }[];
       event?: { type: string; delta?: { type: string; text?: string } };
       result?: string;
       is_error?: boolean;
@@ -265,6 +285,15 @@ export async function execute(
     };
     if (message.type === "system" && message.session_id)
       await emit({ type: "native.session", data: { id: message.session_id } });
+    if (message.type === "system" && message.subtype === "init")
+      await emit({
+        type: "sdk.initialized",
+        data: {
+          model: message.model,
+          tools: message.tools ?? [],
+          mcpServers: message.mcp_servers ?? [],
+        },
+      });
     if (
       message.type === "stream_event" &&
       message.event?.type === "content_block_delta" &&
@@ -272,7 +301,7 @@ export async function execute(
     ) {
       await emit({
         type: "text.delta",
-        data: { text: message.event.delta.text ?? "" },
+        data: { text: sdkText(message.event.delta.text ?? "") },
       });
     }
     if (message.type === "result") {
@@ -286,7 +315,10 @@ export async function execute(
       finished = true;
       await emit({
         type: "completed",
-        data: { text: message.result ?? "", usage: message.usage ?? {} },
+        data: {
+          text: sdkText(message.result ?? ""),
+          usage: message.usage ?? {},
+        },
       });
     }
   }

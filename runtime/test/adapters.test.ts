@@ -6,8 +6,15 @@ import {
   isolatedEnvironment,
   promptFor,
   instructions,
+  sdkText,
   type RunRequest,
 } from "../src/adapters.js";
+
+test("malformed SDK text fails before it reaches PostgreSQL or the event stream", () => {
+  assert.throws(() => sdkText('echo({"text":"marker"})\0\0'), /malformed text/);
+  assert.equal(sdkText("中文 😀\nordinary text"), "中文 😀\nordinary text");
+  assert.equal(sdkText(String.raw`\u0000`), String.raw`\u0000`);
+});
 const input: RunRequest = {
   runId: "test",
   sessionId: "session",
@@ -59,6 +66,10 @@ test("SDK options isolate credentials and route tools through the shared MCP end
     );
     assert.equal(options.maxTurns, 4);
     assert.deepEqual(options.settingSources, []);
+    assert.equal(
+      options.mcpServers.secretary.alwaysLoad,
+      provider === "codebuddy" ? true : undefined,
+    );
   }
   assert.match(instructions(input), /SECRETARY/);
 });

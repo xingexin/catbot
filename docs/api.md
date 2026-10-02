@@ -7,8 +7,10 @@
 | `POST /api/login` | `password` 登录 |
 | `POST /api/logout` | 退出 |
 | `GET /api/status` | 服务连接状态 |
+| `GET /api/qq` | QQ 两种渠道状态、个人号绑定（不返回令牌） |
+| `PUT /api/qq/onebot` | 修改个人号绑定，需管理员登录 |
 | `GET/POST /api/secrets` | 凭证引用列表 / 加密保存 |
-| `GET/POST /api/configs` | 执行配置 |
+| `GET/POST /api/configs` | 模型配置 |
 | `POST /api/configs/{id}/test` | API 连接检查；SDK 通过对话联调 |
 | `GET/POST /api/personas` | 人格；复制或导入时不传 ID |
 | `DELETE /api/personas/{id}` | 删除未被引用的人格 |
@@ -32,7 +34,9 @@
 | `GET /api/notifications` | 任务通知 |
 | `GET /api/deliveries` | QQ 投递状态 |
 
-## 执行配置
+## 模型配置
+
+管理端入口为「系统与凭证 → 模型接入」，左侧「模型配置」也可进入。配置对话框支持选用已有凭证，或添加 Key 后自动选用；API 数据仍只保存凭证 ID。
 
 ```json
 {
@@ -76,7 +80,7 @@ SDK 配置改成 `kind=sdk`，`provider` 为 `codebuddy / claude / codex`。SDK 
   "cron": "0 9 * * *",
   "timeZone": "Asia/Shanghai",
   "catchupSec": 3600,
-  "configId": "执行配置ID",
+  "configId": "模型配置ID",
   "personaId": "secretary",
   "sessionId": "结果通知会话ID",
   "notify": true,
@@ -90,6 +94,24 @@ SDK 配置改成 `kind=sdk`，`provider` 为 `codebuddy / claude / codex`。SDK 
 顺序工具参数支持完整值引用 `${steps.stepId.field}`，保留对象、数组或数值的类型。Agent 步骤会接收先前结果。更新时带当前 `id` 和 `revision`，冲突后刷新再编辑。
 
 ## 内部协议
+
+QQ 个人号绑定请求（`PUT /api/qq/onebot`）：
+
+```json
+{
+  "enabled": true,
+  "selfId": "10001",
+  "allowedUserIds": ["20002"],
+  "configId": "已保存的模型配置ID",
+  "personaId": "secretary"
+}
+```
+
+现有 OneBot 的 `selfId` 必须与接入服务实际登录账号一致；空允许列表不能启用。默认模型与人格只影响新会话。`GET /api/qq` 保留 `strategies`、`onebot` 绑定及 `napcatWebUrl`，不会返回任何令牌。每个策略新增 `implementation` 展示实际实现，`provider` 仍是兼容路由键 `official/onebot`。未使用本地 NapCat 时 `napcatWebUrl` 为空字符串。
+
+状态中 `configured` 仅表示官方配置齐备，不代表真实收发通过；`online` 表示个人号已登录并启用绑定。自研发送器可不实现连接检查，此时 `state=unknown`，管理员可配置绑定，但不会显示为已验证在线。
+
+外部消息入口：`POST /qq/webhook` 使用官方 Ed25519 签名；`POST /qq/onebot/events` 使用 `X-Signature: sha1=<HMAC-SHA1(rawBody, ONEBOT_TOKEN)>`，不使用管理员 cookie。两者均只处理绑定联系人，并由公共队列异步执行。OneBot 接受十分钟内的私聊事件，群消息、自发消息和未绑定联系人返回空对象但不提交执行。
 
 `POST runtime:/runs` 使用运行服务 Bearer token，返回 SSE：`native.session`、`text.delta`、`sdk.tool.started/completed`、`completed`、`error`。HTTP 断开会取消 SDK。相同 run ID 不能重复占用执行日志。
 
