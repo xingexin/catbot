@@ -1,0 +1,159 @@
+package plugin
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+
+	domainplugin "github.com/xingexin/catbot/internal/domain/plugin"
+	"github.com/xingexin/catbot/internal/infra/store"
+)
+
+type Packages struct {
+	Store   store.Store
+	Root    string
+	DataDir string
+}
+
+func NewPackages(s store.Store, root, data string) *Packages {
+	return &Packages{Store: s, Root: root, DataDir: data}
+}
+
+func (p *Packages) Read(dir string) (string, domainplugin.Manifest, error) {
+	root, err := filepath.EvalSymlinks(p.Root)
+	if err != nil {
+		return "", domainplugin.Manifest{}, err
+	}
+	full, err := filepath.EvalSymlinks(filepath.Join(root, dir))
+	if err != nil {
+		return "", domainplugin.Manifest{}, err
+	}
+	rel, err := filepath.Rel(root, full)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", domainplugin.Manifest{}, errors.New("plugin must be inside PLUGIN_DIR")
+	}
+	b, err := os.ReadFile(filepath.Join(full, "plugin.json"))
+	if err != nil {
+		return "", domainplugin.Manifest{}, err
+	}
+	var manifest domainplugin.Manifest
+	if err = json.Unmarshal(b, &manifest); err != nil {
+		return "", domainplugin.Manifest{}, err
+	}
+	if err := domainplugin.ValidateManifestIdentity(manifest); err != nil {
+		return "", manifest, err
+	}
+	entry, err := filepath.EvalSymlinks(filepath.Join(full, manifest.Entry))
+	if err != nil {
+		return "", domainplugin.Manifest{}, err
+	}
+	entryRel, _ := filepath.Rel(full, entry)
+	if strings.HasPrefix(entryRel, "..") {
+		return "", domainplugin.Manifest{}, errors.New("entry must be inside plugin package")
+	}
+	return full, manifest, nil
+}
+
+// Freeze retains self-contained plugin bundles until an administrator removes
+// unused versions. Symlinks and node_modules are deliberately not executable
+// package dependencies; plugin authors bundle dependencies at build time.
+func (p *Packages) Freeze(ctx context.Context, dir string, manifest domainplugin.Manifest) (string, error) {
+	type file struct {
+		name string
+		data []byte
+	}
+	files := []file{}
+	hash := sha256.New()
+	size := int64(0)
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return errors.New("plugin packages cannot contain symlinks")
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return errors.New("plugin package contains a nonregular file")
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		size += info.Size()
+		if size > 100<<20 {
+			return errors.New("plugin package exceeds 100 MB")
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		_, _ = io.WriteString(hash, rel+"\x00")
+		_, _ = hash.Write(b)
+		_, _ = hash.Write([]byte{0})
+		files = append(files, file{rel, b})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))
+	key := manifest.ID + "@" + manifest.Version
+	unlock, err := p.Store.Lock(ctx, "package:"+key)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	var old struct {
+		Digest    string `json:"digest"`
+		Directory string `json:"directory"`
+	}
+	if err := p.Store.Get(ctx, "plugin-package", key, &old); err == nil {
+		if old.Digest != digest {
+			return "", errors.New("package contents changed without a version bump")
+		}
+		if _, err := os.Stat(old.Directory); err == nil {
+			return old.Directory, nil
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	target := filepath.Join(p.DataDir, "plugin-packages", key+"-"+digest[:16])
+	if err := os.MkdirAll(target, 0700); err != nil {
+		return "", err
+	}
+	for _, f := range files {
+		path := filepath.Join(target, f.name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(path, f.data, 0600); err != nil {
+			return "", err
+		}
+	}
+	old.Digest = digest
+	old.Directory = target
+	return target, p.Store.Put(ctx, "plugin-package", key, old)
+}

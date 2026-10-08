@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 // The model key stays in the server vault. This creates only a Web notification.
 const env = Object.fromEntries(
-  (await readFile(".env", "utf8"))
+  (await readFile(new URL("../deploy/.env", import.meta.url), "utf8"))
     .split("\n")
     .filter((line) => line.includes("=") && !line.startsWith("#"))
     .map((line) => [

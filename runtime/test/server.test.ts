@@ -61,14 +61,16 @@ test(
         assert.equal(rejected.status, 400);
         await rejected.text();
       }
-      assert.equal(
-        (
-          await fetch(url + "/health", {
-            headers: { Authorization: "Bearer fixture-token" },
-          })
-        ).status,
-        200,
-      );
+      const health = await fetch(url + "/health", {
+        headers: { Authorization: "Bearer fixture-token" },
+      });
+      assert.equal(health.status, 200);
+      assert.deepEqual(await health.json(), {
+        status: "ok",
+        providers: ["codebuddy", "claude", "codex"],
+        active: 0,
+        liveVerification: "not_performed",
+      });
       const input = {
         runId: "one-run",
         sessionId: "one-session",

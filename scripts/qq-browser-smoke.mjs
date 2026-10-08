@@ -3,7 +3,7 @@ import { chromium } from "@playwright/test";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 const env = Object.fromEntries(
-  (await readFile(new URL("../.env", import.meta.url), "utf8"))
+  (await readFile(new URL("../deploy/.env", import.meta.url), "utf8"))
     .split("\n")
     .filter((x) => x.includes("=") && !x.startsWith("#"))
     .map((x) => [x.slice(0, x.indexOf("=")), x.slice(x.indexOf("=") + 1)]),

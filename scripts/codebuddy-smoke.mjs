@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 // Uses a credential already stored in the server vault; never reads the API key.
 const env = Object.fromEntries(
-  (await readFile(".env", "utf8"))
+  (await readFile(new URL("../deploy/.env", import.meta.url), "utf8"))
     .split("\n")
     .filter((line) => line.includes("=") && !line.startsWith("#"))
     .map((line) => [

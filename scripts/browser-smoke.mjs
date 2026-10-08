@@ -4,10 +4,10 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import assert from "node:assert/strict";
-import { composeContainer, dockerEnvironment } from "./deployment.mjs";
+import { composeContainer, dockerEnvironment } from "../deploy/scripts/deployment.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = Object.fromEntries(
-  (await readFile(resolve(root, ".env"), "utf8"))
+  (await readFile(resolve(root, "deploy/.env"), "utf8"))
     .split("\n")
     .filter((s) => s.includes("="))
     .map((s) => {

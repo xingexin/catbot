@@ -2,7 +2,7 @@
 
 ## 部署与持久化
 
-`compose.yaml` 包含 PostgreSQL 17.6、Temporal 1.29.1、Go 后端、Node SDK 服务和 Nginx Web。PostgreSQL 同时保存业务库与 Temporal 库。三个数据卷分别保存数据库、附件/插件包、SDK 会话目录。
+`deploy/compose.yaml` 包含 PostgreSQL 17.6、Temporal 1.29.1、Go 后端、Node SDK 服务和 Nginx Web。PostgreSQL 同时保存业务库与 Temporal 库。数据库、附件/插件包、SDK 会话目录和 QQ 登录状态各自保存在命名数据卷。
 
 默认仅发布到本机回环地址：
 
@@ -33,9 +33,13 @@ make docker
 make
 ```
 
-`make` 在启动 Compose 服务前初始化配置。已有 `.env` 未设置项目名时，脚本补写 `COMPOSE_PROJECT_NAME=secretary`；新生成的 `.env` 使用 `catbot`。`scripts/compose` 在初始化之前也会按同一规则解析项目名，避免检查命令误选新项目。已有自定义项目名保留；环境变量显式覆盖仍然有效。
+部署文件统一位于 `deploy/`：`Dockerfile`、Compose 基础/测试文件、私密 `.env`、本机 `compose.override.yaml`、`nginx/nginx.conf`、启动脚本及部署测试。源码开发和真实联调脚本保留在根 `scripts/`。
 
-Compose 项目名决定数据卷前缀，不能把它当作界面标题随意修改。数据库名、默认人格 ID、Temporal 队列、MCP 名称等兼容标识也不因品牌改名迁移。`./scripts/compose ps`、`exec` 和 `cp` 会选择当前配置的项目，运维脚本不再固定 `secretary-backend-1` 一类容器名。
+升级时初始化脚本会把旧根目录 `.env` 和 `compose.override.yaml` 原样移入 `deploy/`，保留权限；发现新旧两处同时存在任一文件时，在任何迁移前报错，不覆盖或合并配置。部署启动器总是指定根目录 `--project-directory`、`--env-file deploy/.env` 和 `-f deploy/compose.yaml`，并自动加载存在的 `deploy/compose.override.yaml`。因此 NapCat 的 `./data/napcat/config`、测试 fixture 的 `./scripts/fixture-model.mjs` 仍从项目根解析。额外测试服务用 `./deploy/scripts/compose -f deploy/compose.test.yaml up -d fixture`。
+
+`make` 在启动 Compose 服务前初始化配置。已有 `deploy/.env` 未设置项目名时，脚本补写 `COMPOSE_PROJECT_NAME=secretary`；新生成的 `deploy/.env` 使用 `catbot`。`deploy/scripts/compose` 在初始化之前也会按同一规则解析项目名，避免检查命令误选新项目。已有自定义项目名保留；环境变量显式覆盖仍然有效。
+
+Compose 项目名决定数据卷前缀，不能把它当作界面标题随意修改。数据库名、默认人格 ID、Temporal 队列、MCP 名称等兼容标识也不因品牌改名迁移。`./deploy/scripts/compose ps`、`exec` 和 `cp` 会选择当前配置的项目，运维脚本不再固定 `secretary-backend-1` 一类容器名。
 
 新建项目 Colima 环境默认磁盘 60 GB（镜像、QQ 客户端和构建缓存需要空间）。已有 20 GB 环境不会在每次启动时强制改动；若数据库日志出现 `No space left on device`，可执行 `colima --profile secretary stop`，再 `colima --profile secretary start --disk 60` 后运行 `make`。扩容保留数据卷，不需要删除数据库或登录状态。
 
@@ -51,7 +55,7 @@ Compose 项目名决定数据卷前缀，不能把它当作界面标题随意修
 
 Claude 适配使用 `ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL`。CodeBuddy 适配使用 SDK 支持的环境配置；按账号区域设置 `CODEBUDDY_INTERNET_ENVIRONMENT`。Codex 使用构造参数 `apiKey / baseUrl`。原生会话目录在 SDK 数据卷内按提供商分开。
 
-CodeBuddy iOA 接入：在 `.env` 设置 `CODEBUDDY_INTERNET_ENVIRONMENT=ioa` 后执行 `make`。打开「系统与凭证 → 模型接入」（或左侧「模型配置」），添加配置并选择 CodeBuddy Agent SDK；在配置对话框内添加 iOA Key 后自动选用，也可选用已保存的凭证。保存后的配置使用 `kind=sdk / provider=codebuddy`；GLM 5.3 的模型 ID 为 `glm-5.3`，Base URL 留空使用官方路由。`glm5.3` 会收到模型不存在的 400 响应。
+CodeBuddy iOA 接入：在 `deploy/.env` 设置 `CODEBUDDY_INTERNET_ENVIRONMENT=ioa` 后执行 `make`。打开「系统与凭证 → 模型接入」（或左侧「模型配置」），添加配置并选择 CodeBuddy Agent SDK；在配置对话框内添加 iOA Key 后自动选用，也可选用已保存的凭证。保存后的配置使用 `kind=sdk / provider=codebuddy`；GLM 5.3 的模型 ID 为 `glm-5.3`，Base URL 留空使用官方路由。`glm5.3` 会收到模型不存在的 400 响应。
 
 「接口协议」用于模型 API 直连，CodeBuddy Agent SDK 在 SDK 接入方式中选择。若连接 CodeBuddy 的兼容 API，则根据端点支持的协议选择 OpenAI Chat Completions、Responses 或 Anthropic Messages。
 
@@ -77,20 +81,20 @@ CodeBuddy 的业务 MCP 使用 `alwaysLoad: true`。SDK 默认延迟加载 MCP�
 
 默认 `make` 启动固定版本 `mlikiowa/napcat-docker:v4.18.28`，支持本机 ARM64。`make docker` 仍只准备 Docker 运行环境。
 
-`.env` 的 `NAPCAT_ENABLED` 默认 `true`。设为 `false` 后 `make` 不启动本地 NapCat，并停止已运行的 NapCat 容器，保留配置与数据卷；其余服务照常启动。`ONEBOT_URL` 可指向另一个兼容服务。空值在 NapCat 启用时使用容器地址，关闭时表示不接入 OneBot。管理端在未使用本地 NapCat 时隐藏本地登录入口。Compose 的 NapCat profile 由 `scripts/compose` 自动选择。
+`deploy/.env` 的 `NAPCAT_ENABLED` 默认 `true`。设为 `false` 后 `make` 不启动本地 NapCat，并停止已运行的 NapCat 容器，保留配置与数据卷；其余服务照常启动。`ONEBOT_URL` 可指向另一个兼容服务。空值在 NapCat 启用时使用容器地址，关闭时表示不接入 OneBot。管理端在未使用本地 NapCat 时隐藏本地登录入口。Compose 的 NapCat profile 由 `deploy/scripts/compose` 自动选择。
 
-1. 打开 `http://localhost:6099/webui`，使用 `.env` 的 `NAPCAT_WEBUI_TOKEN` 登录。扫码登录作为秘书的 QQ。
+1. 打开 `http://localhost:6099/webui`，使用 `deploy/.env` 的 `NAPCAT_WEBUI_TOKEN` 登录。扫码登录作为秘书的 QQ。
 2. 打开秘书管理端「系统与凭证」的个人 QQ 卡片，刷新连接，点击「填入当前登录 QQ」。
 3. 填写允许联系人的 QQ 号（用另一个账号给秘书发私聊），选择模型配置和人格，打开启用开关并保存。
 4. 从允许的联系人发送文本；在 Web 对话和运行记录中查看执行，在投递记录中查看 `provider=onebot`、状态与平台消息 ID。
 
-首次扫码登录成功后，可在 `.env` 设置 `NAPCAT_ACCOUNT=机器人QQ号`。容器重建时会尝试使用原数据卷中的登录状态快速登录；登录态失效时仍需扫码。留空则启动二维码登录。
+首次扫码登录成功后，可在 `deploy/.env` 设置 `NAPCAT_ACCOUNT=机器人QQ号`。容器重建时会尝试使用原数据卷中的登录状态快速登录；登录态失效时仍需扫码。留空则启动二维码登录。
 
 `ONEBOT_TOKEN` 是框架与 NapCat 之间的机器凭证，`NAPCAT_WEBUI_TOKEN` 是 NapCat 管理页面的初始密码，两者不同于秘书管理员密码。初始化脚本只补充缺失项，保留已有 MASTER_KEY、管理员密码与 SDK 配置；不打印生成的令牌。
 
 容器内 HTTP API 为 `http://napcat:3000`，不映射到宿主机。事件上报地址为 `http://backend:8080/qq/onebot/events`。两侧使用同一个 `ONEBOT_TOKEN`；上报为 HMAC-SHA1 签名，API 调用为 Bearer token。配置自动写入 `data/napcat/config/onebot11.json`，首次登录后 NapCat 生成 `onebot11_<QQ>.json`。运行状态存入 `napcat-qq` 数据卷。不要给容器增加 privileged 或挂载 Docker socket。
 
-已有 NapCat 或其他兼容 OneBot 11 服务也可使用：在 `.env` 设置 `NAPCAT_ENABLED=false`、`ONEBOT_URL / ONEBOT_TOKEN`，无需修改 Compose。外部服务启用 HTTP Server 与 HTTP Client，将事件指向本服务 `/qq/onebot/events`，`messagePostFormat=array`。本地 Go 进程需要导出相同环境变量。首版单实例只绑定一个个人 QQ 登录账号。
+已有 NapCat 或其他兼容 OneBot 11 服务也可使用：在 `deploy/.env` 设置 `NAPCAT_ENABLED=false`、`ONEBOT_URL / ONEBOT_TOKEN`，无需修改 Compose。外部服务启用 HTTP Server 与 HTTP Client，将事件指向本服务 `/qq/onebot/events`，`messagePostFormat=array`。本地 Go 进程需要导出相同环境变量。首版单实例只绑定一个个人 QQ 登录账号。
 
 排错：
 
@@ -98,7 +102,7 @@ CodeBuddy 的业务 MCP 使用 `alwaysLoad: true`。SDK 默认延迟加载 MCP�
 - `disabled`：账号在线，但尚未启用秘书绑定；保存联系人配置后再刷新。
 - `account_mismatch`：当前登录账号和绑定不同。确认后重新绑定，旧账号会话不会发给新账号。
 - 更换 `ONEBOT_TOKEN` 时，需要同步更新默认与已登录账号的 OneBot HTTP Server / Client token，再重启相关服务；初始化脚本不会覆盖已有账号配置。
-- 若在 NapCat 中修改了 WebUI 密码，以当前 `data/napcat/config/webui.json` 为准，`.env` 中仍是初始值。
+- 若在 NapCat 中修改了 WebUI 密码，以当前 `data/napcat/config/webui.json` 为准，`deploy/.env` 中仍是初始值。
 - 停用后不再接受新消息或发送通知；已排队或执行的模型任务可在运行记录取消。
 
 支持私聊文本和群白名单内的 @ 文本消息；群聊需要选择使用显式工具清单的群人格，不会默认开放私人秘书的全部工具。群内按发言人分别保存上下文，任务仅能由创建者的原群会话查询和管理；提醒回原群并 @ 发起人。匿名、系统提示、未 @ 机器人及未授权群消息不触发执行。官方 QQ 适配器仍只支持私聊。
@@ -129,7 +133,7 @@ CodeBuddy 的业务 MCP 使用 `alwaysLoad: true`。SDK 默认延迟加载 MCP�
 
 配置 `transcriptionConfigId`、`transcriptionModel`、`visionConfigId`，授权 `files/models/storage`。上传后使用「解析视频」创建手动任务，再点「立即执行」；也可以从插件模板创建任务。
 
-视频默认 100 MB / 30 分钟；可调整插件 `maxMB / maxMinutes`。更大的文件还需同步调整后端 `MAX_UPLOAD_MB` 和 `deploy/nginx.conf` 的请求大小限制。转写音频单次限制 25 MB，超出会明确失败。
+视频默认 100 MB / 30 分钟；可调整插件 `maxMB / maxMinutes`。更大的文件还需同步调整后端 `MAX_UPLOAD_MB` 和 `deploy/nginx/nginx.conf` 的请求大小限制。转写音频单次限制 25 MB，超出会明确失败。
 
 没有音轨、没有视觉能力或转写失败都会返回错误，不保存成完整解析。已知时间来源为抽样帧；未提供音频时间戳时，无法定位的音频事项应使用 null。
 
@@ -150,3 +154,5 @@ Compose 的单节点 Temporal 地址使用 `passthrough:///temporal:7233`，避�
 如果 `npm ci` 出现 `EAI_AGAIN` 或 `Exit handler never called`，先检查日志中依赖域名的 DNS 错误，不要把安装器的最终报错当成依赖代码错误。可以用一次性容器分别验证默认 DNS 与你网络中可用的 DNS。当前机器的独立 Colima `secretary` 环境已设置 Docker 引擎 DNS 为 `223.5.5.5`、`1.1.1.1`，用于绕过失效的 VM 转发器；没有改 macOS 系统 DNS。这是本机配置，不会强制其它部署使用同一解析器。企业私网域名应选择公司网络允许的 DNS。
 
 重启 Colima 后如 Docker 当前上下文被恢复为 `default`，可显式使用 `DOCKER_CONTEXT=colima-secretary make`。数据卷仍保留在原环境，不需要创建新的数据库或复制凭证。
+
+Docker 构建上下文仍是项目根。忽略规则集中在 `deploy/Dockerfile.dockerignore`，根 `.dockerignore` 仅作为兼容符号链接，保证无 BuildKit 的 legacy builder 也排除 `deploy/.env`、本机覆盖文件、数据和依赖目录。不要删除该链接后使用 legacy builder。

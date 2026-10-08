@@ -6,7 +6,9 @@ import {
 import { mkdir, open, writeFile, rename } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
-import { execute, type RunRequest, type RunEvent } from "./adapters.js";
+import { execute } from "./execution.js";
+import type { RunRequest, RunEvent } from "./contracts.js";
+import { providerRegistry } from "./registry.js";
 import { validRun, safeEvent } from "./validation.js";
 
 const root = resolve(process.env.RUNTIME_DATA_DIR ?? "../data/sdk");
@@ -41,7 +43,7 @@ const server = createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") {
     json(res, 200, {
       status: "ok",
-      providers: ["codebuddy", "claude", "codex"],
+      providers: providerRegistry.names(),
       active: active.size,
       liveVerification: "not_performed",
     });

@@ -1,29 +1,29 @@
 .DEFAULT_GOAL := up
 
-COMPOSE := ./scripts/compose
+COMPOSE := ./deploy/scripts/compose
 SERVICE ?=
 WAIT_TIMEOUT ?= 300
 
 .PHONY: up start docker check down stop restart status logs help build test dev
 
 up: check
-	@python3 scripts/init-env.py
 	$(COMPOSE) up --build --wait --wait-timeout $(WAIT_TIMEOUT)
 	@web_address=$$($(COMPOSE) port web 80) && \
-		printf '\n服务已启动：http://%s\n登录密码：项目 .env 中的 ADMIN_PASSWORD\n' "$$web_address"
-	@if [ "$$(python3 -c 'import sys; sys.path.insert(0,"scripts"); from deployment import settings; print(settings()["NAPCAT_ENABLED"])')" = true ]; then \
+		printf '\n服务已启动：http://%s\n登录密码：项目 deploy/.env 中的 ADMIN_PASSWORD\n' "$$web_address"
+	@if [ "$$(python3 -c 'import sys; sys.path.insert(0,"deploy/scripts"); from deployment import settings; print(settings()["NAPCAT_ENABLED"])')" = true ]; then \
 		napcat_address=$$($(COMPOSE) port napcat 6099) && \
-		printf '个人 QQ 登录：http://%s/webui\nNapCat 初始令牌：项目 .env 中的 NAPCAT_WEBUI_TOKEN\n' "$$napcat_address"; \
+		printf '个人 QQ 登录：http://%s/webui\nNapCat 初始令牌：项目 deploy/.env 中的 NAPCAT_WEBUI_TOKEN\n' "$$napcat_address"; \
 	fi
 
 start: up
 
 docker:
 	@command -v python3 >/dev/null 2>&1 || { printf '缺少 Python 3，无法读取部署配置。\n' >&2; exit 1; }
-	@sh scripts/start-docker.sh
+	@sh deploy/scripts/start-docker.sh
 
 check: docker
 	@command -v python3 >/dev/null 2>&1 || { printf '缺少 Python 3，无法初始化本地配置。\n' >&2; exit 1; }
+	@python3 deploy/scripts/init-env.py
 	@$(COMPOSE) version >/dev/null 2>&1 || { printf '缺少 Docker Compose，请安装支持 --wait 的 Compose。\n' >&2; exit 1; }
 
 down:

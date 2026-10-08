@@ -1,9 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { composeContainer, dockerEnvironment } from "./deployment.mjs";
+import { composeContainer, dockerEnvironment } from "../deploy/scripts/deployment.mjs";
 const env = Object.fromEntries(
-  (await readFile(".env", "utf8"))
+  (await readFile(new URL("../deploy/.env", import.meta.url), "utf8"))
     .split("\n")
     .filter((s) => s.includes("="))
     .map((s) => {

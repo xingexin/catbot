@@ -1,4 +1,4 @@
-import type { RunRequest } from "./adapters.js";
+import type { RunRequest } from "./contracts.js";
 const identifier = /^[a-zA-Z0-9:_-]{1,240}$/;
 const object = (value: unknown): value is Record<string, any> =>
   value !== null && typeof value === "object" && !Array.isArray(value);

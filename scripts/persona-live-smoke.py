@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--report", type=Path, default=Path("data/acceptance/persona-michele-live-report.json"))
     args = parser.parse_args()
     env = {}
-    for line in Path(".env").read_text().splitlines():
+    for line in (Path(__file__).resolve().parent.parent / "deploy" / ".env").read_text().splitlines():
         if "=" in line and not line.startswith("#"):
             key, value = line.split("=", 1)
             env[key] = value.strip().strip("\"'")

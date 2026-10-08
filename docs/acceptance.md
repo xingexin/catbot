@@ -146,10 +146,10 @@
 初始化并构建：
 
 ```sh
-python3 scripts/init-env.py
+python3 deploy/scripts/init-env.py
 npm ci
 npm run build
-./scripts/compose -f compose.yaml -f compose.test.yaml up --build -d
+./deploy/scripts/compose -f deploy/compose.test.yaml up --build -d
 ```
 
 不需要厂商凭证的基础测试：
@@ -160,13 +160,13 @@ go vet ./...
 npm test
 ```
 
-真实数据库与 Temporal 测试。脚本读取本地 `.env`，只创建测试数据库，不打印密码：
+真实数据库与 Temporal 测试。脚本读取本地 `deploy/.env`，只创建测试数据库，不打印密码：
 
 ```sh
 TEST_DOCKER_CONTEXT=colima-secretary python3 scripts/test-integration.py
 ```
 
-使用其他 Docker context 时，将变量改成实际名称，例如 `default`。若自行准备测试服务，也可以直接设置 `TEST_DATABASE_URL` 和 `TEST_TEMPORAL_ADDRESS` 后运行 Go 测试。
+使用其他 Docker context 时，将变量改成实际名称，例如 `default`。若自行准备测试服务，也可以直接设置 `TEST_DATABASE_URL` 和 `TEST_TEMPORAL_ADDRESS` 后运行 `go test -tags=integration -race ./...`。
 
 浏览器与视频链路验收：
 

@@ -1,12 +1,1 @@
-.git
-.env
-.env.*
-!.env.example
-**/node_modules
-**/dist
-data
-bin
-coverage
-test-results
-playwright-report
-.idea
+deploy/Dockerfile.dockerignore

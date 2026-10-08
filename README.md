@@ -12,9 +12,9 @@ Go 对话主干 + 独立 TypeScript 插件 + 三家 Agent SDK 适配 + Temporal 
 make
 ```
 
-默认 `make` 会先准备 Docker 环境，再初始化 `.env`、构建镜像、在后台启动 PostgreSQL、Temporal、SDK 执行服务、后端、Web 和 NapCat，等待服务就绪后输出访问地址。首次构建需要下载镜像和依赖，后续启动会复用构建缓存。修改代码或 `.env` 后再次执行 `make` 即可应用更新。
+默认 `make` 会先准备 Docker 环境，再初始化 `deploy/.env`、构建镜像、在后台启动 PostgreSQL、Temporal、SDK 执行服务、后端、Web 和 NapCat，等待服务就绪后输出访问地址。首次构建需要下载镜像和依赖，后续启动会复用构建缓存。修改代码或 `deploy/.env` 后再次执行 `make` 即可应用更新。
 
-NapCat 是可选外部依赖。在 `.env` 设置 `NAPCAT_ENABLED=false` 后执行 `make`，只启动秘书主体，并停止原来运行的本地 NapCat（保留登录数据）。要连接其他 OneBot 服务，再设置 `ONEBOT_URL` 和 `ONEBOT_TOKEN`。也可临时用 `NAPCAT_ENABLED=false make` 验证。
+NapCat 是可选外部依赖。在 `deploy/.env` 设置 `NAPCAT_ENABLED=false` 后执行 `make`，只启动秘书主体，并停止原来运行的本地 NapCat（保留登录数据）。要连接其他 OneBot 服务，再设置 `ONEBOT_URL` 和 `ONEBOT_TOKEN`。也可临时用 `NAPCAT_ENABLED=false make` 验证。
 
 `make docker` 可单独准备 Docker 环境：已运行时直接复用；当前 Colima 环境停止时自动启动它；Mac 的 Docker Desktop 环境会自动唤起应用。当前为默认环境且安装了 Colima 时，新安装会启动项目的 `catbot` 环境；检测到已有 `secretary` Colima 环境时继续复用其中的数据。显式设置的远程地址或其他不可用环境会提示检查，不自动替换。
 
@@ -29,7 +29,7 @@ make down                   # 移除容器，保留数据卷
 make help                   # 查看命令说明
 ```
 
-打开 **http://localhost:5173**，使用本地 `.env` 中的 `ADMIN_PASSWORD` 登录。新安装的 Compose 项目名为 `catbot`。从旧版本升级时，初始化脚本会在 `.env` 补写 `COMPOSE_PROJECT_NAME=secretary`，继续使用原数据卷、SDK 会话和 QQ 登录；不要为了改显示名称手动修改这个部署标识。自定义项目名也会保留。初始化脚本不会覆盖已有密钥。请备份 `MASTER_KEY`；丢失后无法解密已保存凭证。
+打开 **http://localhost:5173**，使用本地 `deploy/.env` 中的 `ADMIN_PASSWORD` 登录。新安装的 Compose 项目名为 `catbot`。从旧版本升级时，初始化脚本会在 `deploy/.env` 补写 `COMPOSE_PROJECT_NAME=secretary`，继续使用原数据卷、SDK 会话和 QQ 登录；不要为了改显示名称手动修改这个部署标识。自定义项目名也会保留。初始化脚本不会覆盖已有密钥。请备份 `MASTER_KEY`；丢失后无法解密已保存凭证。
 
 1. 打开「系统与凭证 → 模型接入」，或左侧「模型配置」。
 2. 添加模型配置，选择 API 或 SDK、模型及 Base URL；可选用已有凭证，或在配置对话框内添加 Key 并自动选用。
@@ -38,7 +38,7 @@ make help                   # 查看命令说明
 5. 在「邮箱监听」配置、测试并启用 IMAP，选择接收提醒的 QQ 或 Web 会话。
 6. 在「插件」配置视频能力；上传文件后创建后台解析任务。
 
-完整设置、通知失败处理和实际账号验收见 [日常使用指南](docs/daily-use.md)。
+部署目录与迁移说明见 [部署说明](deploy/README.md)。完整设置、通知失败处理和实际账号验收见 [日常使用指南](docs/daily-use.md)。
 
 **CodeBuddy iOA + `glm-5.3` 已完成真实流式对话、原生会话续接和示例插件调用联调（2026-09-30），OneBot QQ 群聊已完成真实收发、上下文和定时通知联调（2026-10-07）。** Claude、Codex、API 直连端点、真实邮箱与官方 QQ 仍需凭证联调。以 `[本地验收]` 或 `[浏览器验收]` 命名的配置连接确定性测试端点，不能作为真实模型能力或效果证明。详见 [验收报告](docs/acceptance.md)。
 
@@ -48,7 +48,7 @@ QQ 保留 `official`、`onebot` 两个逻辑通道键，具体收发实现由启
 
 个人 QQ 接入：
 
-1. `make` 后打开 [NapCat 登录页](http://localhost:6099/webui)，用 `.env` 中的 `NAPCAT_WEBUI_TOKEN` 登录页面，再扫码登录秘书 QQ。
+1. `make` 后打开 [NapCat 登录页](http://localhost:6099/webui)，用 `deploy/.env` 中的 `NAPCAT_WEBUI_TOKEN` 登录页面，再扫码登录秘书 QQ。
 2. 打开 [管理端](http://localhost:5173) →「系统与凭证」→「个人 QQ」，刷新连接并填入当前登录 QQ。
 3. 填写允许联系人的另一个 QQ 号，选择模型配置及人格，开启接收并保存。
 4. 从允许的联系人账号向秘书 QQ 发私聊；会话及执行记录会同步出现在 Web。
@@ -73,21 +73,23 @@ SDK 使用独立 HOME、工作目录和原生会话数据。SDK 中断后停止�
 ## 项目结构
 
 ```text
-cmd/catbot/        Go 服务入口，HTTP + Temporal Worker
-internal/agent/      API 协议、工具循环、SDK 桥接
-internal/service/    对话、人格、管理 API、QQ、插件宿主
-internal/message/    独立收发契约：Sender、InboundMessage、StatusChecker
-internal/transport/  官方 QQ 与 OneBot HTTP 适配器（不依赖 service.App）
-internal/plugin/     包版本、MCP 子进程、权限、操作去重
-internal/job/        Temporal Workflow / Activity / Schedule
-internal/store/      PostgreSQL 存储与并发锁
-internal/secret/     AES-GCM 凭证库
-runtime/             官方 Agent SDK 执行服务
+cmd/catbot/          Go 进程入口
+internal/bootstrap/ 依赖装配、通道注册、启动和关闭
+internal/config/    环境配置读取与启动校验
+internal/domain/    领域模型、纯规则、类型化仓储和 Agent 工具循环
+internal/biz/       对话、任务、插件、消息等用例编排
+internal/infra/     JSONB 底座、模型协议、SDK Bridge、消息适配器和外部设施
+internal/transport/ 管理 HTTP/SSE、MCP、插件宿主协议入口
+internal/worker/    Temporal、即时对话队列、恢复扫描
+runtime/src/        SDK 服务、契约、注册表和三家 Provider
 packages/plugin-sdk/ TypeScript 插件开发包
-plugins/             示例、IMAP 邮箱、视频解析
-web/                 React + Ant Design 管理端
-scripts/             初始化、插件模板、集成与浏览器测试
+plugins/            示例、IMAP 邮箱、视频解析
+web/                React + Ant Design 管理端
+scripts/            开发工具与集成验收脚本
+deploy/             Docker、Compose、环境配置、Nginx 与部署脚本/测试
 ```
+
+本次目录迁移与验证记录见 [重构验收](docs/refactor-acceptance.md)。
 
 参见 [架构与恢复语义](docs/architecture.md)、[API 与配置](docs/api.md)、[插件开发](docs/plugins.md)、[运维与联调](docs/operations.md)。
 
@@ -98,7 +100,7 @@ scripts/             初始化、插件模板、集成与浏览器测试
 ```sh
 npm ci
 npm run build
-./scripts/compose up -d postgres temporal
+./deploy/scripts/compose up -d postgres temporal
 ```
 
 在 Go 进程环境设置 `DATABASE_URL`、`MASTER_KEY`、`ADMIN_PASSWORD`、`RUNTIME_TOKEN`。数据库端口为 `5442`，Temporal 为 `7233`。随后分别运行：

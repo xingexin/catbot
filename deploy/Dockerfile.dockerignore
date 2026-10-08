@@ -1,0 +1,15 @@
+.git
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/dist
+data
+bin
+coverage
+test-results
+playwright-report
+.idea
+
+# Host-specific configuration is never sent in the build context.
+**/compose.override.yaml
