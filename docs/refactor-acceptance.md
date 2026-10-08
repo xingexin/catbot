@@ -1,6 +1,6 @@
 # Go / Runtime 分层重构验收记录
 
-本记录针对 2026-10-08 的目录与职责拆分。运行环境为 macOS、Docker context `colima-secretary`，既有 Compose project 为 `secretary`。本页记录分层、协议、构建及隔离环境中的启动与恢复验证。现有生产容器未重建或重启。
+本记录针对 2026-10-08 的目录与职责拆分。运行环境为 macOS、Docker context `colima-secretary`，既有 Compose project 为 `secretary`。本页记录分层、协议、构建及隔离环境中的启动与恢复验证。本节记录的重构验收阶段未重建或重启生产容器；后续正式启动见末节。
 
 ## 部署资源集中
 
@@ -134,4 +134,13 @@ go test -tags=integration -race ./internal/bootstrap \
 
 领域和仓储按实际复杂度拆分，没有创建空的 common 或占位领域服务。`domain/conversation`、`domain/persona`、`domain/task` 使用类型化仓储；其他简单管理用例按需复用存储底座。旧 `internal/service`、`internal/job`、集中 `domain/types.go` 和旧适配器目录已移除，不保留生产转发层。
 
-本轮平台请求采用本地协议替身，未重新进行真实 QQ 收发、IMAP 账号或三家模型服务联调。此前真实联调记录与本次结构迁移验证分别保留，不能以本轮模拟测试代替真实兼容性结论。已有 Compose 容器仍运行此前的镜像；在项目根执行 `make` 才会按新结构重新构建并启动，`make docker` 仍仅准备 Docker。配置入口为 `deploy/.env`。
+本轮平台请求采用本地协议替身，未重新进行真实 QQ 收发、IMAP 账号或三家模型服务联调。此前真实联调记录与本次结构迁移验证分别保留，不能以本轮模拟测试代替真实兼容性结论。该验收阶段的 Compose 容器仍运行此前的镜像；重新构建启动使用根目录 `make`，`make docker` 仅准备 Docker。配置入口为 `deploy/.env`。后续启动结果如下。
+
+## 2026-10-08 正式启动补充
+
+发现默认 Docker context 指向不存在的 `/var/run/docker.sock`，但项目 `colima-secretary` 已运行。原脚本再次启动 Colima 后，仍等待错误的默认连接，导致一键启动停顿。启动入口现明确探测项目 context，已运行时直接复用并选中；保留显式环境配置，增加单次探测超时及整体等待进度。
+
+- `make docker` 实际通过，选择现有 `colima-secretary`。
+- `make` 实际通过：重构后的 backend、runtime、web 镜像成功构建并更新容器；PostgreSQL、Temporal、NapCat 复用原实例。六个服务的健康检查全部通过。
+- 管理端为 `http://127.0.0.1:5173`，NapCat 管理端为 `http://127.0.0.1:6099/webui`。
+- 新增 20 项 Docker 启动回归，连同已有 16 项部署测试共 36 项通过，已纳入 `make test`。

@@ -52,7 +52,7 @@ help:
 		'make stop             停止服务，保留容器和数据' \
 		'make down             停止并移除容器，保留数据卷' \
 		'make build            使用本机 Go、Node.js 编译源码' \
-		'make test             运行 Go 和 TypeScript 测试'
+		'make test             运行 Go、TypeScript 和部署测试'
 
 build:
 	npm ci
@@ -61,5 +61,6 @@ build:
 test:
 	go test -race ./...
 	npm test
+	python3 -m unittest discover -s deploy/tests
 dev:
 	go run ./cmd/catbot
