@@ -7,6 +7,7 @@ import {
   promptFor,
   instructions,
   sdkText,
+  secretaryToolPermission,
   type RunRequest,
 } from "../src/adapters.js";
 
@@ -72,4 +73,69 @@ test("SDK options isolate credentials and route tools through the shared MCP end
     );
   }
   assert.match(instructions(input), /SECRETARY/);
+});
+
+test("SDK permission callback only permits valid secretary MCP tool names", async () => {
+  const args = { text: "echo fixture" };
+  assert.deepEqual(
+    await secretaryToolPermission("mcp__secretary__example__echo", args),
+    {
+      behavior: "allow",
+      updatedInput: args,
+    },
+  );
+  for (const name of [
+    "Bash",
+    "PowerShell",
+    "REPL",
+    "SendMessage",
+    "WebFetch",
+    "mcp__other__echo",
+    "mcp__secretary__",
+    "mcp__secretary__echo\n",
+    "mcp__secretary_fake__echo",
+  ]) {
+    assert.equal(
+      (await secretaryToolPermission(name, args)).behavior,
+      "deny",
+      name,
+    );
+  }
+});
+
+test("observed CodeBuddy native tools are explicitly denied without auto-allow rules", async () => {
+  const options = commonOptions(
+    { ...input, config: { ...input.config, provider: "codebuddy" } },
+    "/work",
+    "/isolated",
+    new AbortController(),
+  );
+  assert.equal("allowedTools" in options, false);
+  for (const name of [
+    "PowerShell",
+    "REPL",
+    "SendMessage",
+    "SendUserMessage",
+    "ImageGen",
+    "VideoGen",
+    "AudioTranscribe",
+    "CronCreate",
+    "WeChatReply",
+    "WeComReply",
+    "PushNotification",
+    "ComputerUse",
+    "A2ASendMessage",
+    "MessageColleague",
+    "SpeakInChannel",
+    "Workflow",
+    "ToolSearch",
+  ]) {
+    assert.ok(options.disallowedTools.includes(name), name);
+    assert.equal((await secretaryToolPermission(name, {})).behavior, "deny");
+  }
+  assert.ok(
+    options.disallowedTools.every(
+      (name) => !name.startsWith("mcp__secretary__"),
+    ),
+  );
 });

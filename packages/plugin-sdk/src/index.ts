@@ -31,6 +31,7 @@ export class Host {
   constructor(
     private base = process.env.SECRETARY_HOST_URL ?? "",
     private token = process.env.SECRETARY_HOST_TOKEN ?? "",
+    private operationId = "",
   ) {}
   async request(
     path: string,
@@ -40,7 +41,13 @@ export class Host {
     const response = await fetch(this.base + "/internal/plugin" + path, {
       ...init,
       signal,
-      headers: { ...init.headers, Authorization: "Bearer " + this.token },
+      headers: {
+        ...init.headers,
+        ...(this.operationId
+          ? { "X-Secretary-Operation-ID": this.operationId }
+          : {}),
+        Authorization: "Bearer " + this.token,
+      },
     });
     if (!response.ok) {
       let message = "Host HTTP " + response.status;
@@ -124,6 +131,18 @@ export class Host {
   ): Promise<any> {
     return this.json("/tasks", { ...task, operationId }, signal);
   }
+  async notify(
+    sessionId: string,
+    text: string,
+    operationId: string,
+    signal?: AbortSignal,
+  ): Promise<{ id: string; status: string; error?: string }> {
+    return this.json(
+      "/notifications",
+      { sessionId, text, operationId },
+      signal,
+    );
+  }
 }
 
 export function normalizeResult(value: unknown): JSONObject {
@@ -149,7 +168,6 @@ export async function serve(handlers: Record<string, Handler>): Promise<void> {
   );
   for (const t of manifest.tools)
     if (!handlers[t.name]) throw new Error("Missing tool handler: " + t.name);
-  const host = new Host();
   const server = new Server(
     { name: manifest.id, version: manifest.version },
     { capabilities: { tools: {} } },
@@ -184,7 +202,7 @@ export async function serve(handlers: Record<string, Handler>): Promise<void> {
       const value = normalizeResult(
         await handlers[request.params.name](args, {
           config,
-          host,
+          host: new Host(undefined, undefined, operationId),
           signal: extra.signal,
           operationId,
         }),

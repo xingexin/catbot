@@ -21,7 +21,7 @@ func (t tokenTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 func TestMCPGatewayUsesRunScopedPermissions(t *testing.T) {
 	a := testApp(t)
-	run := domain.Run{ID: "sdk-run", Status: "running", Persona: domain.Persona{Tools: []string{"system__task_list"}}, Versions: map[string]string{}}
+	run := domain.Run{ID: "sdk-run", Status: "running", Config: domain.Config{Kind: "sdk", Capabilities: domain.Capabilities{Tools: true}}, Persona: domain.Persona{Tools: []string{"system__task_list"}}, Versions: map[string]string{}}
 	if err := a.Store.Put(t.Context(), "run", run.ID, run); err != nil {
 		t.Fatal(err)
 	}

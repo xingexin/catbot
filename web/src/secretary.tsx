@@ -41,11 +41,13 @@ import { api, downloadJSON, parseJSON, pretty } from "./api";
 import { Editor } from "./editor";
 import { QQConnections } from "./qq";
 import { ModelConnections } from "./models";
+import { MailSettings } from "./mail";
 const { TextArea } = Input;
 export type Row = Record<string, any>;
 const pages = [
   { key: "chat", icon: <MessageOutlined />, label: "对话" },
   { key: "tasks", icon: <ClockCircleOutlined />, label: "定时任务" },
+  { key: "mail", icon: <FileTextOutlined />, label: "邮箱监听" },
   { key: "artifacts", icon: <FileTextOutlined />, label: "文件与解析" },
   { key: "personas", icon: <UserOutlined />, label: "人格" },
   { key: "plugins", icon: <AppstoreOutlined />, label: "插件" },
@@ -56,6 +58,7 @@ const pages = [
 const descriptions: Record<string, string> = {
   chat: "把事情交给秘书，过程与结果都有迹可循。",
   tasks: "一次提醒、周期安排，或按步骤执行的后台工作。",
+  mail: "连接邮箱，定期检查新邮件，有变化时通知指定会话。",
   artifacts: "上传文件，查看插件保存的摘要和提取事项。",
   personas: "设定表达方式和行为偏好，按会话选择。",
   plugins: "独立安装业务能力，让秘书逐步成长。",
@@ -102,8 +105,11 @@ export function Secretary() {
   const rows = (name: string) => data[name] ?? [];
   const session = rows("sessions").find((s) => s.id === sessionId);
   const active = run?.status === "running" || run?.status === "queued";
-  async function refresh() {
-    setBusy(true);
+  const suggestedConfigId =
+    session?.configId ??
+    (rows("configs").length === 1 ? rows("configs")[0]?.id : undefined);
+  async function refresh(silent = false) {
+    if (!silent) setBusy(true);
     try {
       const names = [
         "configs",
@@ -118,6 +124,7 @@ export function Secretary() {
         "tools",
         "notifications",
         "deliveries",
+        "model-calls",
       ];
       const values = await Promise.all(names.map((n) => api("/" + n)));
       setData(Object.fromEntries(names.map((n, i) => [n, values[i] ?? []])));
@@ -125,7 +132,7 @@ export function Secretary() {
     } catch (e) {
       message.error((e as Error).message);
     } finally {
-      setBusy(false);
+      if (!silent) setBusy(false);
     }
   }
   useEffect(() => {
@@ -141,9 +148,16 @@ export function Secretary() {
     end.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [stream, sessionId, page, active, session?.messages?.length]);
   useEffect(() => {
-    if (!logged || (page !== "tasks" && page !== "runs")) return;
+    if (
+      !logged ||
+      (page !== "tasks" &&
+        page !== "runs" &&
+        page !== "mail" &&
+        page !== "chat")
+    )
+      return;
     const id = setInterval(() => {
-      void refresh();
+      void refresh(true);
     }, 10000);
     return () => clearInterval(id);
   }, [page, logged]);
@@ -167,6 +181,7 @@ export function Secretary() {
         protocol: "openai-chat",
         maxSteps: 12,
         maxTokens: 4096,
+        maxInputBytes: 98304,
         timeoutSec: 180,
         capabilities: {
           tools: true,
@@ -418,7 +433,7 @@ export function Secretary() {
             onClick={() =>
               open("session", {
                 title: "新的对话",
-                configId: rows("configs")[0]?.id,
+                configId: suggestedConfigId,
                 personaId:
                   rows("personas").find((p) => p.default)?.id ?? "secretary",
               })
@@ -447,15 +462,18 @@ export function Secretary() {
               >
                 <MessageOutlined />
                 <span>
-                  {s.title || "未命名会话"}
+                  {s.title ||
+                    (s.channelRoom ? `群 ${s.channelRoom}` : "未命名会话")}
                   <small>
                     {rows("personas").find((p) => p.id === s.personaId)?.name ??
                       s.personaId}{" "}
                     ·{" "}
                     {s.channel === "qq"
-                      ? s.channelProvider === "onebot"
-                        ? "QQ 个人号"
-                        : "QQ 官方"
+                      ? s.channelRoom
+                        ? `QQ群 ${s.channelRoom} · 发言人 ${s.recipient}`
+                        : s.channelProvider === "onebot"
+                          ? "QQ 个人号"
+                          : "QQ 官方"
                       : s.channel}
                   </small>
                 </span>
@@ -477,7 +495,7 @@ export function Secretary() {
                 onClick={() =>
                   open("session", {
                     title: "新的对话",
-                    configId: rows("configs")[0]?.id,
+                    configId: suggestedConfigId,
                     personaId:
                       rows("personas").find((p) => p.default)?.id ??
                       "secretary",
@@ -503,6 +521,11 @@ export function Secretary() {
               <div className="chat-title">
                 <div>
                   <strong>{session.title || "未命名会话"}</strong>
+                  {session.channelRoom && (
+                    <Tag color="blue">
+                      群 {session.channelRoom} · 发言人 {session.recipient}
+                    </Tag>
+                  )}
                   <span className="muted">
                     {
                       rows("configs").find((c) => c.id === session.configId)
@@ -567,6 +590,32 @@ export function Secretary() {
                     onClick={() => setInspect(events)}
                   >
                     查看过程
+                  </Button>
+                </div>
+              )}
+              {rows("notifications").some(
+                (n) => n.sessionId === session.id && n.taskId,
+              ) && (
+                <div className="tool-strip">
+                  <Tag color="blue">任务通知</Tag>
+                  <span>
+                    {rows("notifications")
+                      .filter((n) => n.sessionId === session.id && n.taskId)
+                      .slice(-1)[0]
+                      ?.text?.slice(0, 100)}
+                  </span>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() =>
+                      setInspect(
+                        rows("notifications").filter(
+                          (n) => n.sessionId === session.id && n.taskId,
+                        ),
+                      )
+                    }
+                  >
+                    查看提醒
                   </Button>
                 </div>
               )}
@@ -767,6 +816,19 @@ export function Secretary() {
         </div>
       </>
     );
+  else if (page === "mail")
+    content = (
+      <MailSettings
+        plugins={rows("plugins")}
+        configs={rows("configs")}
+        personas={rows("personas")}
+        sessions={rows("sessions")}
+        tasks={rows("tasks")}
+        executions={rows("executions")}
+        onRefresh={refresh}
+        onInspect={setInspect}
+      />
+    );
   else if (page === "plugins")
     content = (
       <>
@@ -842,7 +904,12 @@ export function Secretary() {
                       size="small"
                       key={t.id}
                       onClick={() =>
-                        open("task", { name: t.name, steps: t.steps })
+                        open("task", {
+                          name: t.name,
+                          steps: t.steps,
+                          notifyWhen: t.notifyWhen,
+                          notifyText: t.notifyText,
+                        })
                       }
                     >
                       {t.name}
@@ -1123,12 +1190,87 @@ export function Secretary() {
             },
           ])}
         />
+        <h3>插件模型调用</h3>
+        <p className="muted">
+          记录插件的生成与转写调用。用量仅显示服务返回的数据，不代表完整成本；中断或未返回用量的调用不会推算为零。
+        </p>
+        <Table
+          rowKey="id"
+          size="small"
+          dataSource={rows("model-calls")}
+          columns={recordColumns([
+            {
+              title: "插件",
+              render: (_: unknown, r: Row) =>
+                r.pluginId + " v" + r.pluginVersion,
+            },
+            {
+              title: "模型调用",
+              render: (_: unknown, r: Row) => (
+                <>
+                  <Tag>{r.kind === "transcribe" ? "转写" : "生成"}</Tag>
+                  <div>{r.model}</div>
+                  <span className="muted">{r.protocol}</span>
+                </>
+              ),
+            },
+            {
+              title: "关联操作",
+              dataIndex: "operationId",
+              ellipsis: true,
+              render: (v: string) => v || "未关联",
+            },
+            {
+              title: "用量",
+              render: (_: unknown, r: Row) =>
+                r.usage == null ? (
+                  <span className="muted">未返回</span>
+                ) : (
+                  <Button size="small" onClick={() => setInspect(r.usage)}>
+                    查看已知用量
+                  </Button>
+                ),
+            },
+            {
+              title: "时间 / 耗时",
+              render: (_: unknown, r: Row) => (
+                <>
+                  <div>{new Date(r.startedAt).toLocaleString()}</div>
+                  <span className="muted">
+                    {r.durationMs == null ? "耗时未知" : r.durationMs + " ms"}
+                  </span>
+                </>
+              ),
+            },
+          ])}
+        />
         <h3>任务通知</h3>
         <Table
           rowKey="id"
           size="small"
           dataSource={rows("notifications")}
-          columns={recordColumns()}
+          columns={recordColumns([
+            { title: "通知内容", dataIndex: "text", ellipsis: true },
+            {
+              title: "投递",
+              render: (_: unknown, n: Row) =>
+                n.status === "failed" ? (
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      act(
+                        () => api("/notifications/" + n.id + "/retry", {}),
+                        "已重新投递",
+                      )
+                    }
+                  >
+                    重试投递
+                  </Button>
+                ) : n.status === "uncertain" ? (
+                  "结果不确定，请核对接收方"
+                ) : null,
+            },
+          ])}
         />
         <h3>QQ 投递记录</h3>
         <Table
@@ -1212,6 +1354,7 @@ export function Secretary() {
           personas={rows("personas").map((x) => ({
             id: String(x.id),
             name: String(x.name),
+            tools: Array.isArray(x.tools) ? x.tools.map(String) : null,
           }))}
         />
         <div className="toolbar">
@@ -1278,7 +1421,7 @@ export function Secretary() {
             <Button
               type="text"
               icon={<ReloadOutlined spin={busy} />}
-              onClick={refresh}
+              onClick={() => void refresh()}
             >
               刷新
             </Button>

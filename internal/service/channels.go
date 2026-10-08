@@ -14,13 +14,21 @@ type ChannelBinding struct {
 	Enabled             bool
 	Account             string
 	AllowedPeers        []string
+	AllowedRooms        []string
 	ConfigID, PersonaID string
+	RoomPersonaID       string
 	AllowLegacyAccount  bool
 }
 
-func (b ChannelBinding) allows(account, peer string, outbound bool) bool {
+func (b ChannelBinding) allows(account, peer, roomID string, outbound bool) bool {
 	accountMatches := account == b.Account || (outbound && b.AllowLegacyAccount && account == "")
-	return b.Enabled && accountMatches && peer != "" && slices.Contains(b.AllowedPeers, peer)
+	if !b.Enabled || !accountMatches || peer == "" {
+		return false
+	}
+	if roomID != "" {
+		return peer != account && slices.Contains(b.AllowedRooms, roomID)
+	}
+	return slices.Contains(b.AllowedPeers, peer)
 }
 
 // Channel is registered once at startup. The routing key is independent of the

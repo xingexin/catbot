@@ -11,15 +11,17 @@ import (
 )
 
 type oneBotBinding struct {
-	Enabled        bool     `json:"enabled"`
-	SelfID         string   `json:"selfId"`
-	AllowedUserIDs []string `json:"allowedUserIds"`
-	ConfigID       string   `json:"configId"`
-	PersonaID      string   `json:"personaId"`
+	Enabled         bool     `json:"enabled"`
+	SelfID          string   `json:"selfId"`
+	AllowedUserIDs  []string `json:"allowedUserIds"`
+	AllowedGroupIDs []string `json:"allowedGroupIds"`
+	ConfigID        string   `json:"configId"`
+	PersonaID       string   `json:"personaId"`
+	GroupPersonaID  string   `json:"groupPersonaId"`
 }
 
 func (a *App) oneBotBinding(ctx context.Context) (oneBotBinding, error) {
-	b := oneBotBinding{AllowedUserIDs: []string{}, ConfigID: a.Options.QQConfigID, PersonaID: a.Options.QQPersonaID}
+	b := oneBotBinding{AllowedUserIDs: []string{}, AllowedGroupIDs: []string{}, ConfigID: a.Options.QQConfigID, PersonaID: a.Options.QQPersonaID}
 	if b.PersonaID == "" {
 		b.PersonaID = "secretary"
 	}
@@ -54,8 +56,8 @@ func (a *App) saveOneBotBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.Enabled {
-		if !validQQID(b.SelfID) || len(b.AllowedUserIDs) == 0 || len(b.AllowedUserIDs) > 20 {
-			fail(w, errors.New("填写登录的 QQ 号和 1–20 个允许联系的 QQ 号"))
+		if !validQQID(b.SelfID) || len(b.AllowedUserIDs)+len(b.AllowedGroupIDs) == 0 || len(b.AllowedUserIDs) > 20 || len(b.AllowedGroupIDs) > 20 {
+			fail(w, errors.New("填写登录的 QQ 号，以及允许联系人或群号；联系人和群各最多 20 个"))
 			return
 		}
 		for _, id := range b.AllowedUserIDs {
@@ -64,15 +66,38 @@ func (a *App) saveOneBotBinding(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		for _, id := range b.AllowedGroupIDs {
+			if !validQQID(id) {
+				fail(w, errors.New("群号必须是有效的 QQ 群号"))
+				return
+			}
+		}
 		var c domain.Config
-		var p domain.Persona
 		if err := a.Store.Get(r.Context(), "config", b.ConfigID, &c); err != nil {
 			fail(w, errors.New("请选择有效执行配置"))
 			return
 		}
-		if err := a.Store.Get(r.Context(), "persona", b.PersonaID, &p); err != nil {
-			fail(w, errors.New("请选择有效人格"))
-			return
+		if len(b.AllowedUserIDs) > 0 {
+			var p domain.Persona
+			if err := a.Store.Get(r.Context(), "persona", b.PersonaID, &p); err != nil {
+				fail(w, errors.New("请选择有效私聊人格"))
+				return
+			}
+		}
+		if len(b.AllowedGroupIDs) > 0 {
+			var p domain.Persona
+			if b.GroupPersonaID == "" {
+				fail(w, errors.New("请选择独立的群聊人格，并明确设置允许的工具"))
+				return
+			}
+			if err := a.Store.Get(r.Context(), "persona", b.GroupPersonaID, &p); err != nil {
+				fail(w, errors.New("请选择有效群聊人格"))
+				return
+			}
+			if p.Tools == nil {
+				fail(w, errors.New("群聊人格必须使用明确的工具清单，可设为空列表，不能默认开放全部工具"))
+				return
+			}
 		}
 		channel, registered := a.channels["onebot"]
 		if !registered {
@@ -95,7 +120,7 @@ func (a *App) saveOneBotBinding(w http.ResponseWriter, r *http.Request) {
 // OneBotChannelBinding reads the existing logical channel policy, independently of its sender.
 func (a *App) OneBotChannelBinding(ctx context.Context) (ChannelBinding, error) {
 	b, err := a.oneBotBinding(ctx)
-	return ChannelBinding{Enabled: b.Enabled, Account: b.SelfID, AllowedPeers: b.AllowedUserIDs, ConfigID: b.ConfigID, PersonaID: b.PersonaID}, err
+	return ChannelBinding{Enabled: b.Enabled, Account: b.SelfID, AllowedPeers: b.AllowedUserIDs, AllowedRooms: b.AllowedGroupIDs, ConfigID: b.ConfigID, PersonaID: b.PersonaID, RoomPersonaID: b.GroupPersonaID}, err
 }
 func (a *App) OfficialChannelBinding(context.Context) (ChannelBinding, error) {
 	return ChannelBinding{Enabled: a.Options.QQUser != "", Account: a.Options.QQAppID, AllowedPeers: []string{a.Options.QQUser}, ConfigID: a.Options.QQConfigID, PersonaID: a.Options.QQPersonaID, AllowLegacyAccount: true}, nil

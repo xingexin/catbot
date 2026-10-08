@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +44,7 @@ type App struct {
 	Options   Options
 	Direct    agent.Executor
 	SDK       agent.Executor
-	Notifier  func(context.Context, string, string, string) error
+	Notifier  func(context.Context, NotificationDelivery) error
 	channels  map[string]Channel
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -106,8 +105,25 @@ func (a *App) Bootstrap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	recoveredSessions := make(map[string]bool)
 	for _, r := range runs {
 		if r.Status == "running" {
+			if !recoveredSessions[r.SessionID] {
+				var session domain.Session
+				err := a.Store.Get(ctx, "session", r.SessionID, &session)
+				if err != nil && !errors.Is(err, store.ErrNotFound) {
+					return fmt.Errorf("load interrupted run session: %w", err)
+				}
+				if err == nil && session.ActiveConfig != "" {
+					// Persist this before finalizing the run so a failed recovery
+					// can retry without resuming an ambiguous native SDK turn.
+					session.ActiveConfig = ""
+					if err := a.Store.Put(ctx, "session", session.ID, session); err != nil {
+						return fmt.Errorf("clear interrupted native session: %w", err)
+					}
+				}
+				recoveredSessions[r.SessionID] = true
+			}
 			r.Status = "interrupted"
 			r.Error = "service restarted during execution; inspect before resuming"
 			now := time.Now()
@@ -117,26 +133,25 @@ func (a *App) Bootstrap(ctx context.Context) error {
 			}
 		}
 	}
-	for _, dir := range []string{"example", "mail", "video"} {
-		var p domain.Plugin
-		if err := a.Store.Get(ctx, "plugin", dir, &p); errors.Is(err, store.ErrNotFound) {
-			if _, err := os.Stat(filepath.Join(a.Options.PluginDir, dir, "plugin.json")); err == nil {
-				p, err := a.Plugins.Register(ctx, dir)
-				if err != nil {
-					return err
-				}
-				if dir == "example" {
-					p.Enabled = true
-					if err := a.Store.Put(ctx, "plugin", p.ID, p); err != nil {
-						return err
-					}
-				}
-			}
-		}
+	if err := a.recoverModelCalls(ctx); err != nil {
+		return err
 	}
-	return nil
+	return a.registerBundled(ctx)
 }
 func (a *App) Start() {
+	a.wg.Go(func() {
+		a.reconcileNotifications(a.ctx)
+		timer := time.NewTicker(15 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-timer.C:
+				a.reconcileNotifications(a.ctx)
+			}
+		}
+	})
 	a.wg.Go(func() {
 		a.reconcile(a.ctx)
 		timer := time.NewTicker(15 * time.Second)
@@ -174,12 +189,23 @@ func (a *App) Close() {
 	a.Plugins.Close()
 }
 func (a *App) dispatch() {
-	runs, err := store.All[domain.Run](a.ctx, a.Store, "run")
+	a.mu.Lock()
+	if len(a.active) >= 8 {
+		a.mu.Unlock()
+		return
+	}
+	busy := make([]string, 0, len(a.sessions))
+	for id := range a.sessions {
+		busy = append(busy, id)
+	}
+	a.mu.Unlock()
+	queryCtx, queryCancel := context.WithTimeout(a.ctx, 3*time.Second)
+	runs, err := store.QueuedRuns(queryCtx, a.Store, busy, 64)
+	queryCancel()
 	if err != nil {
 		slog.Error("load queue", "error", err)
 		return
 	}
-	sort.Slice(runs, func(i, j int) bool { return runs[i].CreatedAt.Before(runs[j].CreatedAt) })
 	for _, r := range runs {
 		if r.Status != "queued" || strings.HasPrefix(r.ID, "background-") {
 			continue
@@ -243,7 +269,7 @@ func (a *App) Submit(ctx context.Context, sessionID, prompt, requestID string) (
 	if err != nil {
 		return existing, err
 	}
-	r := domain.Run{ID: id, SessionID: sessionID, Prompt: prompt, Status: "queued", Config: config, Persona: persona, Versions: versions, CreatedAt: time.Now().UTC()}
+	r := domain.Run{ID: id, SessionID: sessionID, Prompt: prompt, Status: "queued", Config: config, Persona: persona, Versions: versions, CreatedAt: time.Now().UTC(), ReplyPending: session.Channel == "qq"}
 	return r, a.Store.Put(ctx, "run", id, r)
 }
 func (a *App) emit(ctx context.Context, id, typ string, data map[string]any) error {
@@ -294,6 +320,7 @@ func (a *App) Execute(ctx context.Context, id string) (domain.Run, error) {
 		}
 	}
 	run.Status = "running"
+	run.ReplyPending = session.Channel == "qq"
 	if err := a.Store.Put(ctx, "run", id, run); err != nil {
 		return run, err
 	}
@@ -313,10 +340,18 @@ func (a *App) Execute(ctx context.Context, id string) (domain.Run, error) {
 		return a.emit(ctx, id, typ, data)
 	}
 	_ = emit("started", map[string]any{"strategy": run.Config.Kind, "model": run.Config.Model})
-	history, summary := agent.Compact(session.Messages, 32000)
+	historyLimit := 32000
+	if run.Config.Kind == "api" {
+		budget := run.Config.MaxInputBytes
+		if budget == 0 {
+			budget = agent.DefaultMaxInputBytes
+		}
+		historyLimit = budget / 2
+	}
+	history, summary := agent.Compact(session.Messages, historyLimit)
+	session.Summary = summary
 	if summary != "" {
 		history = append([]domain.Message{{Role: "user", Content: summary}}, history...)
-		session.Summary = summary
 	}
 	tools, runErr := a.Tools(ctx, run)
 	key := ""
@@ -387,8 +422,13 @@ func (a *App) Execute(ctx context.Context, id string) (domain.Run, error) {
 		return run, err
 	}
 	_ = a.emit(finishCtx, id, "finished", map[string]any{"status": run.Status, "result": run.Result, "usage": run.Usage})
-	if runErr == nil && session.Channel == "qq" && a.Notifier != nil {
-		if err := a.Notifier(finishCtx, session.ID, run.Result, "reply:"+id); err != nil {
+	if run.ReplyPending {
+		// Model timeout must not leave only a fraction of a second to deliver
+		// its reply. Persist the complete text before the external operation.
+		notifyCtx, notifyCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		err := a.notifyReply(notifyCtx, run)
+		notifyCancel()
+		if err != nil {
 			slog.Warn("message notification failed", "runId", id, "error", err)
 		}
 	}

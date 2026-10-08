@@ -7,6 +7,7 @@ import { mkdir, open, writeFile, rename } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { execute, type RunRequest, type RunEvent } from "./adapters.js";
+import { validRun, safeEvent } from "./validation.js";
 
 const root = resolve(process.env.RUNTIME_DATA_DIR ?? "../data/sdk");
 const token = process.env.RUNTIME_TOKEN;
@@ -57,11 +58,7 @@ const server = createServer(async (req, res) => {
     json(res, 400, { error: "Invalid request" });
     return;
   }
-  if (
-    !input.config ||
-    !input.persona ||
-    !/^[a-zA-Z0-9:_-]{1,240}$/.test(input.runId)
-  ) {
+  if (!validRun(input)) {
     json(res, 400, { error: "Invalid run" });
     return;
   }
@@ -88,14 +85,11 @@ const server = createServer(async (req, res) => {
   }
   const deadline = setTimeout(
     () => controller.abort(),
-    Math.min(
-      3600,
-      Number((input.config as unknown as { timeoutSec?: number }).timeoutSec) ||
-        180,
-    ) * 1000,
+    (input.config.timeoutSec ?? 180) * 1000,
   );
   let status = "running";
   const events: RunEvent[] = [];
+  let eventBytes = 0;
   const persist = async () => {
     const temp = recordPath + ".tmp";
     await writeFile(temp, JSON.stringify({ id: input.runId, status, events }), {
@@ -120,12 +114,15 @@ const server = createServer(async (req, res) => {
     if (status === "running") controller.abort();
   });
   const emit = async (e: RunEvent) => {
-    let safe = JSON.stringify(e);
-    for (const value of [input.apiKey, input.gatewayToken])
-      if (value) safe = safe.split(value).join("[REDACTED]");
-    const sanitized = JSON.parse(safe) as RunEvent;
+    const safe = safeEvent(e, [input.apiKey, input.gatewayToken]);
+    if (
+      e.type !== "error" &&
+      (events.length >= 10000 || eventBytes + safe.bytes > 8 * 1024 * 1024)
+    )
+      throw new Error("SDK stream exceeds the event or 8 MB output limit");
+    const sanitized = JSON.parse(safe.json) as RunEvent;
     events.push(sanitized);
-    if (events.length > 10000) throw new Error("Event limit reached");
+    eventBytes += safe.bytes;
     if (e.type === "completed") status = "completed";
     await persist();
     if (!res.destroyed)
@@ -134,7 +131,9 @@ const server = createServer(async (req, res) => {
   try {
     await execute(input, root, controller, emit);
   } catch (error) {
-    status = controller.signal.aborted ? "interrupted" : "failed";
+    const interrupted = controller.signal.aborted;
+    controller.abort();
+    status = interrupted ? "interrupted" : "failed";
     try {
       await emit({
         type: "error",

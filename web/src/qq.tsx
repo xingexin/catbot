@@ -24,12 +24,16 @@ const states: Record<string, string> = {
   unknown: "实现未提供连接检查",
 };
 
+const qqIDs = (value: string = "") => [
+  ...new Set(value.split(/[\s,，]+/).filter(Boolean)),
+];
+
 export function QQConnections({
   configs,
   personas,
 }: {
   configs: { id: string; name: string }[];
-  personas: { id: string; name: string }[];
+  personas: { id: string; name: string; tools?: string[] | null }[];
 }) {
   const [data, setData] = useState<any>();
   const [busy, setBusy] = useState(false);
@@ -46,6 +50,7 @@ export function QQConnections({
         form.setFieldsValue({
           ...result.onebot,
           allowedUsers: result.onebot.allowedUserIds?.join("\n") ?? "",
+          allowedGroups: result.onebot.allowedGroupIds?.join("\n") ?? "",
         });
     } catch (e: any) {
       setError(e.message);
@@ -62,6 +67,9 @@ export function QQConnections({
   );
   const choices = (rows: { id: string; name: string }[]) =>
     rows.map((x) => ({ value: x.id, label: x.name }));
+  const groupPersonas = personas.filter((persona) =>
+    Array.isArray(persona.tools),
+  );
   return (
     <div className="cards qq-connections">
       <Card
@@ -86,8 +94,8 @@ export function QQConnections({
         <p>接入实现：{personal?.implementation ?? "读取中"}</p>
         <p>
           {data?.napcatWebUrl
-            ? "先打开 NapCat 扫码登录，再填写允许使用秘书的联系人 QQ 号。"
-            : "在你配置的消息接入服务中登录 QQ，再填写允许使用秘书的联系人 QQ 号。"}
+            ? "先打开 NapCat 扫码登录，再配置允许使用秘书的联系人或群。"
+            : "在你配置的消息接入服务中登录 QQ，再配置允许使用秘书的联系人或群。"}
         </p>
         <Space wrap style={{ marginBottom: 16 }}>
           {data?.napcatWebUrl && (
@@ -114,15 +122,11 @@ export function QQConnections({
                 {
                   enabled: !!values.enabled,
                   selfId: values.selfId?.trim() ?? "",
-                  allowedUserIds: [
-                    ...new Set<string>(
-                      (values.allowedUsers ?? "")
-                        .split(/[\s,，]+/)
-                        .filter(Boolean),
-                    ),
-                  ],
+                  allowedUserIds: qqIDs(values.allowedUsers),
+                  allowedGroupIds: qqIDs(values.allowedGroups),
                   configId: values.configId ?? "",
                   personaId: values.personaId ?? "",
+                  groupPersonaId: values.groupPersonaId ?? "",
                 },
                 "PUT",
               );
@@ -137,7 +141,7 @@ export function QQConnections({
         >
           <Form.Item
             name="enabled"
-            label="启用私聊接收与通知"
+            label="启用 QQ 消息接收与通知"
             valuePropName="checked"
           >
             <Switch />
@@ -148,7 +152,7 @@ export function QQConnections({
           <Form.Item
             name="allowedUsers"
             label="允许联系人的 QQ 号"
-            extra="一行一个，最多 20 个。用这些账号向上面的秘书账号发消息。"
+            extra="一行一个，最多 20 个。控制私聊使用权限；只使用群聊时可留空。"
           >
             <Input.TextArea rows={2} placeholder="你的另一个 QQ 号" />
           </Form.Item>
@@ -158,15 +162,76 @@ export function QQConnections({
               placeholder="选择模型或 Agent SDK"
             />
           </Form.Item>
-          <Form.Item name="personaId" label="新会话的人格">
+          <Form.Item name="personaId" label="新私聊会话的人格">
             <Select options={choices(personas)} />
           </Form.Item>
+          <Form.Item
+            name="allowedGroups"
+            label="允许使用的 QQ 群号"
+            dependencies={["enabled", "allowedUsers"]}
+            extra="一行一个，最多 20 个。机器人须已加入这些群；群内所有成员都可通过 @ 机器人使用，无需加入私聊联系人列表。"
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (
+                    getFieldValue("enabled") &&
+                    qqIDs(value).length === 0 &&
+                    qqIDs(getFieldValue("allowedUsers")).length === 0
+                  )
+                    return Promise.reject(
+                      new Error("启用时至少填写一个允许的联系人或 QQ 群"),
+                    );
+                  return Promise.resolve();
+                },
+              }),
+            ]}
+          >
+            <Input.TextArea rows={2} placeholder="允许接收 @ 消息的 QQ 群号" />
+          </Form.Item>
+          <Form.Item
+            name="groupPersonaId"
+            label="新群聊会话的人格"
+            dependencies={["allowedGroups", "enabled"]}
+            extra="在「人格」中创建群人格，取消「使用所有已授权工具」，再选择群内确需使用的工具；也可不开放任何工具。"
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (
+                    getFieldValue("enabled") &&
+                    qqIDs(getFieldValue("allowedGroups")).length > 0 &&
+                    !groupPersonas.some((persona) => persona.id === value)
+                  )
+                    return Promise.reject(
+                      new Error("群聊需选择设有明确工具清单的人格"),
+                    );
+                  return Promise.resolve();
+                },
+              }),
+            ]}
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={choices(groupPersonas)}
+              placeholder="选择单独配置工具权限的群人格"
+              notFoundContent="请先创建具有明确工具清单的群人格"
+            />
+          </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            message="群聊始终仅在 @ 机器人时触发"
+            description="不同群、不同发言人的上下文分别保存。回复和定时提醒发送到原群并 @ 发言人，群内成员均可看到；请只为群人格开放适合公开使用的工具。"
+            style={{ marginBottom: 16 }}
+          />
           <Button type="primary" htmlType="submit" loading={busy}>
             保存绑定
           </Button>
         </Form>
         <p className="muted">
-          首版接收私聊文本；图片、语音等消息会标注未解析。现有会话的模型和人格在对话页调整。停用后阻止新的消息接收和发送，已进入队列的执行仍可在运行记录取消。
+          支持私聊文本与指定群的 @
+          文本消息；图片、语音等消息会标注未解析。群人格独立配置，私聊设置保持不变。现有会话的模型和人格在对话页调整。停用后阻止新的消息接收和发送，已进入队列的执行仍可在运行记录取消。
         </p>
       </Card>
       <Card title="官方 QQ 机器人">

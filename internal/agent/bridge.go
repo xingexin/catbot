@@ -36,7 +36,7 @@ func (b *Bridge) Run(ctx context.Context, r Request, emit Emit) (Result, error) 
 	req.Header.Set("Content-Type", "application/json")
 	client := b.HTTP
 	if client == nil {
-		client = &http.Client{}
+		client = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -47,7 +47,6 @@ func (b *Bridge) Run(ctx context.Context, r Request, emit Emit) (Result, error) 
 		return Result{}, fmt.Errorf("SDK execution service returned HTTP %d", resp.StatusCode)
 	}
 	result := Result{}
-	done := false
 	scanner := bufio.NewScanner(io.LimitReader(resp.Body, 16<<20))
 	scanner.Buffer(make([]byte, 4096), 2<<20)
 	for scanner.Scan() {
@@ -69,19 +68,18 @@ func (b *Bridge) Run(ctx context.Context, r Request, emit Emit) (Result, error) 
 			result.NativeID = str(e.Data["id"])
 		}
 		if e.Type == "completed" {
-			done = true
 			result.Text = str(e.Data["text"])
 			result.Usage = usage(e.Data["usage"])
 		}
 		if err := emit(e.Type, e.Data); err != nil {
 			return result, err
 		}
+		if e.Type == "completed" {
+			return result, nil
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return result, err
 	}
-	if !done {
-		return result, errors.New("SDK stream interrupted; execution outcome requires inspection")
-	}
-	return result, nil
+	return result, errors.New("SDK stream interrupted; execution outcome requires inspection")
 }

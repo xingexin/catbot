@@ -67,7 +67,9 @@ services:
       runtime: { condition: service_healthy }
     environment:
       DATABASE_URL: postgres://secretary:${POSTGRES_PASSWORD}@postgres:5432/secretary?sslmode=disable
-      TEMPORAL_ADDRESS: temporal:7233
+      # This is a single Compose service, not a gRPCLB/SRV endpoint. Docker's
+      # upstream DNS can stall on SRV queries even while its A record is healthy.
+      TEMPORAL_ADDRESS: passthrough:///temporal:7233
       INTERNAL_URL: http://backend:8080
       RUNTIME_URL: http://runtime:8091
       MASTER_KEY: ${MASTER_KEY:?run python3 scripts/init-env.py}

@@ -79,8 +79,11 @@ func (a *App) Handler() http.Handler {
 	api.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) { JSON(w, 200, map[string]string{"username": "admin"}) })
 	api.HandleFunc("GET /api/status", a.status)
 	api.HandleFunc("GET /api/qq", a.qqConnections)
+	api.HandleFunc("POST /api/mail/connection", a.mailConnection)
+	api.HandleFunc("POST /api/mail/watch", a.saveMailWatch)
+	api.HandleFunc("POST /api/notifications/{id}/retry", a.retryNotification)
 	api.HandleFunc("PUT /api/qq/onebot", a.saveOneBotBinding)
-	for path, kind := range map[string]string{"configs": "config", "personas": "persona", "sessions": "session", "runs": "run", "tasks": "task", "executions": "execution", "plugins": "plugin", "artifacts": "artifact", "notifications": "notification", "deliveries": "delivery"} {
+	for path, kind := range map[string]string{"configs": "config", "personas": "persona", "sessions": "session", "runs": "run", "tasks": "task", "executions": "execution", "plugins": "plugin", "artifacts": "artifact", "notifications": "notification", "deliveries": "delivery", "model-calls": "model-call"} {
 		api.HandleFunc("GET /api/"+path, func(w http.ResponseWriter, r *http.Request) {
 			list, err := a.Store.List(r.Context(), kind)
 			if err != nil {
@@ -185,6 +188,10 @@ func (a *App) Handler() http.Handler {
 			Grants []string       `json:"grants"`
 		}
 		if err := decode(w, r, &in); err != nil {
+			fail(w, err)
+			return
+		}
+		if err := a.validatePluginModels(r.Context(), r.PathValue("id"), in.Config); err != nil {
 			fail(w, err)
 			return
 		}

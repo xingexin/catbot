@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -222,7 +221,7 @@ func (e *Engine) Begin(ctx context.Context, in Input, id string) (Snapshot, erro
 	defer unlock()
 	var prior Snapshot
 	if err := e.Store.Get(ctx, "execution-snapshot", id, &prior); err == nil {
-		return prior, nil
+		return prior, e.ensureExecution(ctx, prior, in, id)
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return prior, err
 	}
@@ -237,15 +236,8 @@ func (e *Engine) Begin(ctx context.Context, in Input, id string) (Snapshot, erro
 		_ = e.Store.Put(ctx, "execution", id, domain.TaskExecution{ID: id, TaskID: t.ID, Status: "skipped", Error: "task superseded, paused or cancelled", StartedAt: time.Now().UTC()})
 		return Snapshot{}, temporal.NewNonRetryableApplicationError("task superseded, paused or cancelled", "InactiveTask", nil)
 	}
-	existing, err := store.All[domain.TaskExecution](ctx, e.Store, "execution")
-	if err != nil {
+	if err := e.checkOverlap(ctx, t.ID, id); err != nil {
 		return Snapshot{}, err
-	}
-	for _, x := range existing {
-		if x.TaskID == t.ID && x.ID != id && x.Status == "running" {
-			_ = e.Store.Put(ctx, "execution", id, domain.TaskExecution{ID: id, TaskID: t.ID, Status: "skipped", Error: "another execution is active", StartedAt: time.Now().UTC()})
-			return Snapshot{}, temporal.NewNonRetryableApplicationError("another execution is active", "OverlapSkipped", nil)
-		}
 	}
 	for pluginID := range t.Versions {
 		var p domain.Plugin
@@ -266,11 +258,92 @@ func (e *Engine) Begin(ctx context.Context, in Input, id string) (Snapshot, erro
 	if err := e.Store.Get(ctx, "persona", t.PersonaID, &snap.Persona); err != nil {
 		return snap, err
 	}
-	x := domain.TaskExecution{ID: id, TaskID: t.ID, Status: "running", Results: map[string]any{}, StartedAt: time.Now().UTC(), Config: &snap.Config, Persona: &snap.Persona, Versions: t.Versions}
-	if err := e.Store.Put(ctx, "execution", id, x); err != nil {
+	// A snapshot must exist before a running occupancy record. If this first
+	// write fails through all Activity retries, later polls remain runnable.
+	// Once saved, a retry uses that same snapshot and repairs the second write.
+	if err := e.Store.Put(ctx, "execution-snapshot", id, snap); err != nil {
 		return snap, err
 	}
-	return snap, e.Store.Put(ctx, "execution-snapshot", id, snap)
+	return snap, e.ensureExecution(ctx, snap, in, id)
+}
+
+// Caller holds the task lock. Saving a snapshot is not a claim: a retry after a
+// failed execution write must still check for a newer execution already begun.
+func (e *Engine) ensureExecution(ctx context.Context, snap Snapshot, in Input, id string) error {
+	var current domain.TaskExecution
+	if err := e.Store.Get(ctx, "execution", id, &current); err == nil {
+		if current.Status == "skipped" || current.Status == "interrupted" {
+			return temporal.NewNonRetryableApplicationError("execution is no longer active", "InactiveTask", nil)
+		}
+		return nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	var task domain.Task
+	if err := e.Store.Get(ctx, "task", snap.Task.ID, &task); err != nil {
+		return err
+	}
+	if task.Revision != in.Revision || task.Status == "cancelled" || (!in.Manual && task.Paused) {
+		if err := e.Store.Put(ctx, "execution", id, domain.TaskExecution{ID: id, TaskID: task.ID, Status: "skipped", Error: "task superseded, paused or cancelled before execution began", StartedAt: time.Now().UTC()}); err != nil {
+			return err
+		}
+		return temporal.NewNonRetryableApplicationError("task superseded, paused or cancelled", "InactiveTask", nil)
+	}
+	if err := e.checkOverlap(ctx, snap.Task.ID, id); err != nil {
+		return err
+	}
+	x := domain.TaskExecution{ID: id, TaskID: snap.Task.ID, Status: "running", Results: map[string]any{}, StartedAt: time.Now().UTC(), Config: &snap.Config, Persona: &snap.Persona, Versions: snap.Task.Versions}
+	return e.Store.Put(ctx, "execution", id, x)
+}
+
+func (e *Engine) checkOverlap(ctx context.Context, taskID, id string) error {
+	existing, err := store.All[domain.TaskExecution](ctx, e.Store, "execution")
+	if err != nil {
+		return err
+	}
+	for _, x := range existing {
+		if x.TaskID != taskID || x.ID == id || x.Status != "running" {
+			continue
+		}
+		closed := false
+		if e.Client != nil {
+			// A failed Begin/Finish may have left an old running row behind.
+			// Temporal, rather than elapsed wall time, decides whether it is
+			// safe to free that occupancy. Never replay the previous actions.
+			description, err := e.Client.DescribeWorkflowExecution(ctx, x.ID, "")
+			var missing *serviceerror.NotFound
+			if errors.As(err, &missing) {
+				closed = true
+			} else if err != nil {
+				return fmt.Errorf("verify active task execution: %w", err)
+			} else if description == nil || description.WorkflowExecutionInfo == nil {
+				return errors.New("Temporal returned no task execution status")
+			} else {
+				switch description.WorkflowExecutionInfo.Status {
+				case enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED, enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+					enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED, enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+					enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
+					closed = true
+				case enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING, enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW:
+				default:
+					return errors.New("Temporal task execution status is unknown")
+				}
+			}
+		}
+		if closed {
+			now := time.Now().UTC()
+			x.Status, x.Error, x.FinishedAt = "interrupted", "workflow is no longer active; inspect saved results and delivery state before retrying", &now
+			if err := e.Store.Put(ctx, "execution", x.ID, x); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := e.Store.Put(ctx, "execution", id, domain.TaskExecution{ID: id, TaskID: taskID, Status: "skipped", Error: "another execution is active", StartedAt: time.Now().UTC()}); err != nil {
+			return err
+		}
+		return temporal.NewNonRetryableApplicationError("another execution is active", "OverlapSkipped", nil)
+	}
+	return nil
 }
 func (e *Engine) ExecuteStep(ctx context.Context, in StepInput) (any, error) {
 	resultID := in.ExecutionID + ":" + in.Step.ID
@@ -356,15 +429,20 @@ func (e *Engine) hydrate(ctx context.Context, results map[string]any) (map[strin
 	return out, nil
 }
 func (e *Engine) Finish(ctx context.Context, snapshot Snapshot, id, status, message string, result map[string]any) error {
+	var x domain.TaskExecution
+	if err := e.Store.Get(ctx, "execution", id, &x); err != nil {
+		return err
+	}
+	// A retry may only need to repair the task status after the execution was
+	// saved. Do not reset a recorded notification failure or attempt it again.
+	if x.Status == "notification_failed" {
+		return e.finishOnceTask(ctx, snapshot.Task, x)
+	}
 	full, err := e.hydrate(ctx, result)
 	if err != nil {
 		return err
 	}
 	result = full
-	var x domain.TaskExecution
-	if err := e.Store.Get(ctx, "execution", id, &x); err != nil {
-		return err
-	}
 	x.Status = status
 	x.Error = message
 	x.Results = result
@@ -373,40 +451,100 @@ func (e *Engine) Finish(ctx context.Context, snapshot Snapshot, id, status, mess
 	if err := e.Store.Put(ctx, "execution", id, x); err != nil {
 		return err
 	}
-	if snapshot.Task.Kind == "once" {
-		unlock, err := e.Store.Lock(ctx, "task:"+snapshot.Task.ID)
-		if err != nil {
-			return err
+	if snapshot.Task.Notify {
+		text, send, notificationErr := Notification(snapshot.Task, status, message, result)
+		if notificationErr == nil {
+			allowed, policyErr := e.allowNotification(ctx, snapshot.Task, id, status)
+			if policyErr != nil {
+				return policyErr
+			}
+			if send && allowed {
+				notificationErr = e.Host.Notify(ctx, snapshot, text, "task-notify:"+id)
+			}
 		}
-		var current domain.Task
-		if err := e.Store.Get(ctx, "task", snapshot.Task.ID, &current); err == nil && current.Revision == snapshot.Task.Revision && current.Status != "cancelled" {
-			current.Status = status
-			current.Error = message
-			err = e.Store.Put(ctx, "task", current.ID, current)
-			unlock()
-			if err != nil {
+		if notificationErr != nil {
+			x.Status = "notification_failed"
+			x.Error = notificationErr.Error()
+			if err := e.Store.Put(ctx, "execution", id, x); err != nil {
 				return err
 			}
-		} else {
-			unlock()
 		}
 	}
-	if snapshot.Task.Notify {
-		b, _ := json.Marshal(result)
-		text := snapshot.Task.Name + "\n" + string(b)
-		if status != "completed" {
-			text = snapshot.Task.Name + "：" + status + "\n" + message
+	return e.finishOnceTask(ctx, snapshot.Task, x)
+}
+
+func (e *Engine) finishOnceTask(ctx context.Context, snapshot domain.Task, x domain.TaskExecution) error {
+	if snapshot.Kind != "once" {
+		return nil
+	}
+	unlock, err := e.Store.Lock(ctx, "task:"+snapshot.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	var current domain.Task
+	if err := e.Store.Get(ctx, "task", snapshot.ID, &current); err != nil {
+		return err
+	}
+	if current.Revision != snapshot.Revision || current.Status == "cancelled" {
+		return nil
+	}
+	current.Status = x.Status
+	current.Error = x.Error
+	return e.Store.Put(ctx, "task", current.ID, current)
+}
+
+// Notification uses human-readable results or a brief completion notice.
+// Structured results remain in the execution record. Conditions never hide failures.
+func Notification(t domain.Task, status, failure string, results map[string]any) (string, bool, error) {
+	if status != "completed" {
+		return t.Name + "：" + status + "\n" + failure, true, nil
+	}
+	if t.NotifyWhen != "" {
+		v, err := Resolve(t.NotifyWhen, results)
+		if err != nil {
+			return "", false, err
 		}
-		if err := e.Host.Notify(ctx, snapshot, text, "task-notify:"+id); err != nil {
-			x.Status = "notification_failed"
-			x.Error = err.Error()
-			return e.Store.Put(ctx, "execution", id, x)
+		changed, ok := v.(bool)
+		if !ok {
+			return "", false, errors.New("notification condition must resolve to a boolean")
+		}
+		if !changed {
+			return "", false, nil
 		}
 	}
-	return nil
+	if t.NotifyText != "" {
+		v, err := Resolve(t.NotifyText, results)
+		if err != nil {
+			return "", false, err
+		}
+		text, ok := v.(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			return "", false, errors.New("notification text must resolve to nonempty text")
+		}
+		return text, true, nil
+	}
+	if len(t.Steps) > 0 {
+		last, _ := results[t.Steps[len(t.Steps)-1].ID].(map[string]any)
+		for _, key := range []string{"notificationText", "text"} {
+			if text, ok := last[key].(string); ok && strings.TrimSpace(text) != "" {
+				return text, true, nil
+			}
+		}
+	}
+	return t.Name + "已完成，详细结果可在管理端查看。", true, nil
 }
 
 var reference = regexp.MustCompile(`^\$\{steps\.([a-zA-Z0-9_-]+)(?:\.([^}]+))?\}$`)
+
+// ReferenceStep validates a single typed result reference, never a template.
+func ReferenceStep(expression string) (string, error) {
+	match := reference.FindStringSubmatch(expression)
+	if match == nil || strings.HasSuffix(expression, ".}") {
+		return "", errors.New("notification must be a single step result reference")
+	}
+	return match[1], nil
+}
 
 // Resolve supports typed references to earlier step output fields.
 func Resolve(value any, results map[string]any) (any, error) {

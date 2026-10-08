@@ -166,6 +166,9 @@ func (q *Adapter) accessToken(ctx context.Context) (string, error) {
 	return out.Token, err
 }
 func (q *Adapter) Send(ctx context.Context, in message.OutboundMessage) (message.SendResult, error) {
+	if in.RoomID != "" {
+		return message.SendResult{Status: message.Failed}, errors.New("official QQ group delivery is not supported by this adapter")
+	}
 	token, err := q.accessToken(ctx)
 	if err != nil {
 		return message.SendResult{Status: message.Failed}, err

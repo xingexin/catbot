@@ -70,6 +70,8 @@ func Open(ctx context.Context, url string) (*Postgres, error) {
 		updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(kind,id)
 	);
 	CREATE INDEX IF NOT EXISTS records_data_idx ON records USING gin(data);
+	CREATE INDEX IF NOT EXISTS records_run_queue_idx ON records ((data->>'createdAt'), id)
+		WHERE kind='run' AND data->>'status'='queued' AND id NOT LIKE 'background-%';
 	CREATE TABLE IF NOT EXISTS run_events (
 		sequence bigserial PRIMARY KEY, run_id text NOT NULL,
 		type text NOT NULL, data jsonb NOT NULL, created_at timestamptz NOT NULL

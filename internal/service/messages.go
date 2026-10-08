@@ -24,7 +24,7 @@ func (a *App) HandleIncoming(ctx context.Context, in message.InboundMessage) err
 	if err != nil {
 		return err
 	}
-	if !binding.allows(in.Account, in.Peer, false) {
+	if !binding.allows(in.Account, in.Peer, in.RoomID, false) || (in.RoomID != "" && !in.Mentioned) {
 		return nil
 	}
 	if in.MessageID == "" || strings.TrimSpace(in.Text) == "" {
@@ -33,10 +33,14 @@ func (a *App) HandleIncoming(ctx context.Context, in message.InboundMessage) err
 	if binding.ConfigID == "" {
 		return errors.New("select a channel execution configuration first")
 	}
-	if binding.PersonaID == "" {
-		binding.PersonaID = "secretary"
-	}
+	personaID := binding.PersonaID
 	identity := in.Route + ":" + in.Account + ":" + in.Peer
+	if in.RoomID != "" {
+		personaID = binding.RoomPersonaID
+		identity = in.Route + ":" + in.Account + ":group:" + in.RoomID + ":" + in.Peer
+	} else if personaID == "" {
+		personaID = "secretary"
+	}
 	sum := sha256.Sum256([]byte(identity))
 	sessionID := "qq-" + in.Route + "-" + hex.EncodeToString(sum[:16])
 	sum = sha256.Sum256([]byte(identity + ":" + in.MessageID))
@@ -49,15 +53,35 @@ func (a *App) HandleIncoming(ctx context.Context, in message.InboundMessage) err
 	defer unlock()
 	var session domain.Session
 	err = a.Store.Get(ctx, "session", sessionID, &session)
-	if errors.Is(err, store.ErrNotFound) {
-		title := channel.Title + " · " + in.Peer
-		session = domain.Session{ID: sessionID, Title: title, Channel: "qq",
-			ChannelProvider: in.Route, ChannelAccount: in.Account, Recipient: in.Peer,
-			PersonaID: binding.PersonaID, ConfigID: binding.ConfigID, Messages: []domain.Message{}, Native: map[string]string{}}
-		err = a.Store.Put(ctx, "session", sessionID, session)
-	}
-	if err != nil {
+	newSession := errors.Is(err, store.ErrNotFound)
+	if err != nil && !newSession {
 		return err
+	}
+	if newSession {
+		title := channel.Title + " · " + in.Peer
+		if in.RoomID != "" {
+			title = channel.Title + " · 群 " + in.RoomID + " · " + in.Peer
+		}
+		session = domain.Session{ID: sessionID, Title: title, Channel: "qq",
+			ChannelProvider: in.Route, ChannelAccount: in.Account, ChannelRoom: in.RoomID, Recipient: in.Peer,
+			PersonaID: personaID, ConfigID: binding.ConfigID, Messages: []domain.Message{}, Native: map[string]string{}}
+	}
+	if in.RoomID != "" {
+		var persona domain.Persona
+		if session.PersonaID == "" {
+			return errors.New("select a group persona with an explicit tool list first")
+		}
+		if err := a.Store.Get(ctx, "persona", session.PersonaID, &persona); err != nil {
+			return err
+		}
+		if persona.Tools == nil {
+			return errors.New("group persona must have an explicit tool list")
+		}
+	}
+	if newSession {
+		if err := a.Store.Put(ctx, "session", sessionID, session); err != nil {
+			return err
+		}
 	}
 	var receipt message.ReplyReference
 	err = a.Store.Get(ctx, "qq-receipt", "run-"+requestID, &receipt)
@@ -81,8 +105,22 @@ type delivery struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// SendMessage persists delivery intent before invoking any registered Sender.
+// NotificationDelivery separates the reply reference from the deduplication ID,
+// so an explicit retry can use a new operation while keeping the same reply.
+type NotificationDelivery struct {
+	SessionID   string
+	Text        string
+	OperationID string
+	ReplyTo     *message.ReplyReference
+}
+
 func (a *App) SendMessage(ctx context.Context, sessionID, text, operationID string) error {
+	return a.DeliverNotification(ctx, NotificationDelivery{SessionID: sessionID, Text: text, OperationID: operationID})
+}
+
+// DeliverNotification persists intent before invoking any registered Sender.
+func (a *App) DeliverNotification(ctx context.Context, in NotificationDelivery) error {
+	sessionID, text, operationID := in.SessionID, in.Text, in.OperationID
 	var session domain.Session
 	if err := a.Store.Get(ctx, "session", sessionID, &session); err != nil {
 		return err
@@ -130,15 +168,15 @@ func (a *App) SendMessage(ctx context.Context, sessionID, text, operationID stri
 	}
 	result := message.SendResult{Status: message.Failed}
 	binding, sendErr := transport.Binding(ctx)
-	if sendErr == nil && !binding.allows(session.ChannelAccount, session.Recipient, true) {
+	if sendErr == nil && !binding.allows(session.ChannelAccount, session.Recipient, session.ChannelRoom, true) {
 		sendErr = errors.New("message account or recipient is not bound")
 	}
 	if sendErr == nil {
-		out := message.OutboundMessage{Account: session.ChannelAccount, Peer: session.Recipient, Text: text, OperationID: operationID}
+		out := message.OutboundMessage{Account: session.ChannelAccount, Peer: session.Recipient, RoomID: session.ChannelRoom, Text: text, OperationID: operationID, ReplyTo: in.ReplyTo}
 		if out.Account == "" && binding.AllowLegacyAccount {
 			out.Account = binding.Account
 		}
-		if strings.HasPrefix(operationID, "reply:") {
+		if out.ReplyTo == nil && strings.HasPrefix(operationID, "reply:") {
 			var receipt message.ReplyReference
 			receiptErr := a.Store.Get(ctx, "qq-receipt", strings.TrimPrefix(operationID, "reply:"), &receipt)
 			if receiptErr == nil {

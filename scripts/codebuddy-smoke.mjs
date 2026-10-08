@@ -96,6 +96,19 @@ async function run(message) {
   await save();
   console.log(JSON.stringify(record));
   assert.equal(result.status, "completed", result.error);
+  for (const event of record.events.filter(
+    (event) => event.type === "sdk.initialized",
+  )) {
+    const nativeTools = (event.data.tools ?? []).filter(
+      (name) => !/^mcp__secretary__[a-zA-Z0-9_-]+$/.test(name),
+    );
+    assert.deepEqual(
+      nativeTools,
+      [],
+      "Unexpected native SDK tools remain advertised: " +
+        nativeTools.join(", "),
+    );
+  }
   return record;
 }
 try {

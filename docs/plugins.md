@@ -81,8 +81,20 @@ stdout 专用于 MCP，业务日志写 stderr。宿主提供的 `AbortSignal` �
 | `host.generate` | models | 使用配置引用请求文本或图片模型 |
 | `host.transcribe` | models | 使用 OpenAI 兼容转写端点 |
 | `host.task(task, operationId, signal)` | tasks | 幂等提交后台任务 |
+| `host.notify(sessionId, text, operationId, signal)` | notifications | 向已存在的 Web/QQ 会话通知结果 |
 
 模型调用由宿主解析凭证，业务插件不需要各家模型或 Agent SDK。`host.generate` 目前要求 API 类型配置；转写要求 OpenAI 兼容协议并显式指定转写模型。
+
+`host.notify` 从 SDK 1.1.0 提供，需要在工具的 `permissions` 声明 `notifications`，再由管理员授权。它复用统一投递记录、QQ 联系人绑定和结果不明保护；不允许把内部任务会话作为接收人。同一插件重复使用相同操作 ID 和内容只会保留一条通知，改接收会话或改内容必须使用新操作 ID。结果不明时不能通过换 ID 自动重发；明确失败后可在管理端手动重试。
+
+```ts
+const delivery = await host.notify(args.sessionId, "解析完成，请查看结果", operationId + ":result", signal);
+// Web 为 saved，平台确认发送为 sent；失败会抛错并保留投递记录。
+```
+
+SDK 1.1.0 自动把当前工具操作 ID 作为 `X-Secretary-Operation-ID` 元数据传给宿主，用于关联模型调用记录；该字段不参与权限认证或模型调用去重。操作 ID 最多 512 字节，不要包含密码或邮件正文。同一工具内的多次生成、转写请求使用相同关联 ID，各自保留独立记录。
+
+`host.generate/transcribe` 在请求模型前保存调用记录，包含插件版本、模型配置、状态、耗时及实际返回的用量，管理员可通过 `GET /api/model-calls` 或「运行记录 → 插件模型调用」查询。记录不保存凭证、输入或输出正文。`usage=null` 表示用量未返回，不代表零消耗；生成接口记录已解析的用量字段，转写接口保留返回的 `usage` 结构，不推算缺失用量或成本。主机重启时未完成记录标为 `interrupted`，不会因此自动重发模型请求；插件自行连接外部模型的调用不在记录范围内。
 
 ## 重试、更新和停用
 

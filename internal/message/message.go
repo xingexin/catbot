@@ -21,8 +21,11 @@ type ReplyReference struct {
 }
 
 type OutboundMessage struct {
-	Account     string
-	Peer        string
+	Account string
+	Peer    string
+	// RoomID is empty for direct messages. In a room, Peer identifies the
+	// participant being answered, not the delivery destination.
+	RoomID      string
 	Text        string
 	OperationID string
 	ReplyTo     *ReplyReference
@@ -43,6 +46,8 @@ type InboundMessage struct {
 	Route      string
 	Account    string
 	Peer       string
+	RoomID     string
+	Mentioned  bool
 	MessageID  string
 	Text       string
 	ReceivedAt time.Time

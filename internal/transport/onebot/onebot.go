@@ -173,17 +173,21 @@ func (q *Adapter) Receive(w http.ResponseWriter, r *http.Request) {
 		Time        int64           `json:"time"`
 		SelfID      oneBotID        `json:"self_id"`
 		UserID      oneBotID        `json:"user_id"`
+		GroupID     oneBotID        `json:"group_id"`
 		MessageID   oneBotID        `json:"message_id"`
 		PostType    string          `json:"post_type"`
 		MessageType string          `json:"message_type"`
+		SubType     string          `json:"sub_type"`
+		Anonymous   json.RawMessage `json:"anonymous"`
 		Message     json.RawMessage `json:"message"`
 	}
 	if err := json.Unmarshal(body, &event); err != nil {
 		httpio.Fail(w, errors.New("invalid OneBot event"))
 		return
 	}
-	// Meta events, groups and our own outbound echoes never invoke the agent.
-	if event.PostType != "message" || event.MessageType != "private" || event.UserID == event.SelfID {
+	// Ignore outbound echoes and anonymous messages, which cannot have an
+	// authenticated per-participant conversation or reminder destination.
+	if event.PostType != "message" || (event.MessageType != "private" && event.MessageType != "group") || event.UserID == event.SelfID || event.SubType == "anonymous" {
 		httpio.JSON(w, 200, map[string]any{})
 		return
 	}
@@ -192,17 +196,27 @@ func (q *Adapter) Receive(w http.ResponseWriter, r *http.Request) {
 		httpio.JSON(w, 200, map[string]any{})
 		return
 	}
-	text, err := oneBotText(event.Message)
+	roomID := ""
+	if event.MessageType == "group" {
+		roomID = string(event.GroupID)
+		anonymous := len(event.Anonymous) > 0 && string(event.Anonymous) != "null"
+		if !validQQID(roomID) || !validQQID(string(event.UserID)) || !validQQID(string(event.SelfID)) || anonymous || event.SubType == "notice" {
+			httpio.JSON(w, 200, map[string]any{})
+			return
+		}
+	}
+	text, mentioned, err := oneBotContent(event.Message, string(event.SelfID))
 	if err != nil {
 		httpio.Fail(w, err)
 		return
 	}
-	if strings.TrimSpace(text) == "" || event.MessageID == "" {
+	if strings.TrimSpace(text) == "" || event.MessageID == "" || (roomID != "" && !mentioned) {
 		httpio.JSON(w, 200, map[string]any{})
 		return
 	}
 	if err := q.incoming(r.Context(), message.InboundMessage{
 		Account: string(event.SelfID), Peer: string(event.UserID), MessageID: string(event.MessageID),
+		RoomID: roomID, Mentioned: mentioned,
 		Text: text, ReceivedAt: time.Unix(event.Time, 0),
 	}); err != nil {
 		httpio.Fail(w, err)
@@ -212,33 +226,53 @@ func (q *Adapter) Receive(w http.ResponseWriter, r *http.Request) {
 }
 
 func oneBotText(raw json.RawMessage) (string, error) {
+	text, _, err := oneBotContent(raw, "")
+	return text, err
+}
+
+func oneBotContent(raw json.RawMessage, selfID string) (string, bool, error) {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
 		// CQ codes are not text content. Our managed deployment uses array format.
 		if strings.Contains(text, "[CQ:") {
-			return "", errors.New("use OneBot array messagePostFormat for mixed messages")
+			return "", false, errors.New("use OneBot array messagePostFormat for mixed messages")
 		}
-		return text, nil
+		return text, false, nil
 	}
 	var segments []struct {
 		Type string `json:"type"`
 		Data struct {
-			Text string `json:"text"`
+			Text string          `json:"text"`
+			QQ   json.RawMessage `json:"qq"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &segments); err != nil {
-		return "", errors.New("invalid OneBot message segments")
+		return "", false, errors.New("invalid OneBot message segments")
 	}
 	var b strings.Builder
+	mentioned := false
 	for _, segment := range segments {
 		if segment.Type == "text" {
 			b.WriteString(segment.Data.Text)
+		} else if segment.Type == "at" {
+			var target string
+			if json.Unmarshal(segment.Data.QQ, &target) != nil {
+				target = string(segment.Data.QQ)
+			}
+			if selfID != "" && target == selfID {
+				mentioned = true
+			} else {
+				b.WriteString("[QQ 提及其他成员]")
+			}
+		} else if segment.Type == "reply" {
+			// A reply ID is metadata, not message text or a bot mention. It
+			// must not cause unrelated historical messages to enter context.
 		} else {
 			// Do not silently treat an attachment as though it was understood.
 			b.WriteString("[QQ 非文本内容未解析]")
 		}
 	}
-	return b.String(), nil
+	return b.String(), mentioned, nil
 }
 
 func (q *Adapter) Send(ctx context.Context, in message.OutboundMessage) (message.SendResult, error) {
@@ -252,13 +286,36 @@ func (q *Adapter) Send(ctx context.Context, in message.OutboundMessage) (message
 	if !validQQID(in.Peer) {
 		return message.SendResult{Status: message.Failed}, errors.New("invalid OneBot recipient")
 	}
+	if in.RoomID != "" && !validQQID(in.RoomID) {
+		return message.SendResult{Status: message.Failed}, errors.New("invalid OneBot group")
+	}
 	var out struct {
 		MessageID oneBotID `json:"message_id"`
 	}
-	state, err := q.call(ctx, "send_private_msg", map[string]any{
+	action := "send_private_msg"
+	segments := []any{}
+	text := in.Text
+	if in.RoomID != "" {
+		if in.ReplyTo != nil && in.ReplyTo.MessageID != "" {
+			if _, err := strconv.ParseInt(in.ReplyTo.MessageID, 10, 64); err != nil {
+				return message.SendResult{Status: message.Failed}, errors.New("invalid OneBot reply reference")
+			}
+			segments = append(segments, map[string]any{"type": "reply", "data": map[string]string{"id": in.ReplyTo.MessageID}})
+		}
+		segments = append(segments, map[string]any{"type": "at", "data": map[string]string{"qq": in.Peer}})
+		text = " " + text
+	}
+	segments = append(segments, map[string]any{"type": "text", "data": map[string]string{"text": text}})
+	args := map[string]any{
 		"user_id": json.Number(in.Peer),
-		"message": []any{map[string]any{"type": "text", "data": map[string]string{"text": in.Text}}},
-	}, &out)
+		"message": segments,
+	}
+	if in.RoomID != "" {
+		action = "send_group_msg"
+		delete(args, "user_id")
+		args["group_id"] = json.Number(in.RoomID)
+	}
+	state, err := q.call(ctx, action, args, &out)
 	if err != nil {
 		return message.SendResult{Status: message.SendStatus(state)}, err
 	}

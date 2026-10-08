@@ -95,7 +95,9 @@ CodeBuddy 的业务 MCP 使用 `alwaysLoad: true`。SDK 默认延迟加载 MCP�
 - 若在 NapCat 中修改了 WebUI 密码，以当前 `data/napcat/config/webui.json` 为准，`.env` 中仍是初始值。
 - 停用后不再接受新消息或发送通知；已排队或执行的模型任务可在运行记录取消。
 
-仅支持私聊文本；混合消息中的非文本片段会标记未解析。字符串 CQ 消息请改为 array 格式。每次最多回复 1800 字，完整结果保存在 Web。网络中断和缺少发送回执会标记 `uncertain`；不会自动再次发送。HTTP 事件推送没有补齐离线消息的保证。
+支持私聊文本和群白名单内的 @ 文本消息；群聊需要选择使用显式工具清单的群人格，不会默认开放私人秘书的全部工具。群内按发言人分别保存上下文，任务仅能由创建者的原群会话查询和管理；提醒回原群并 @ 发起人。匿名、系统提示、未 @ 机器人及未授权群消息不触发执行。官方 QQ 适配器仍只支持私聊。
+
+混合消息中的非文本片段会标记未解析。字符串 CQ 消息请改为 array 格式。每次最多回复 1800 字，完整结果保存在 Web。网络中断和缺少发送回执会标记 `uncertain`；不会自动再次发送。HTTP 事件推送没有补齐离线消息的保证。
 
 参考：[NapCat 配置](https://napneko.github.io/config/basic)、[官方 Docker 仓库](https://github.com/NapNeko/NapCat-Docker)、[OneBot 11 HTTP 上报](https://github.com/botuniverse/onebot-11/blob/master/communication/http-post.md)。
 
@@ -132,3 +134,13 @@ CodeBuddy 的业务 MCP 使用 `alwaysLoad: true`。SDK 默认延迟加载 MCP�
 - 业务插件虽有权限检查，可信插件进程仍可访问其操作系统权限允许的网络和文件；不是恶意代码沙箱。
 - 人格参考 AstrBot 的结构思想，自行实现；不复用其服务代码。[AstrBot 仓库](https://github.com/AstrBotDevs/AstrBot)。
 - MCP 与 Temporal 的使用边界参考 [MCP 服务开发](https://modelcontextprotocol.io/docs/develop/build-server)、[Temporal Schedule](https://docs.temporal.io/schedule)。
+
+## 升级与网络排错补充
+
+`make` 升级内置插件时，只在自带语义版本更高时注册新版，保留原配置、加密凭证引用、权限和启停状态。执行中的工作继续使用冻结的旧包；不会用新文件覆盖已运行的版本。自定义插件仍由管理页显式注册/更新。
+
+Compose 的单节点 Temporal 地址使用 `passthrough:///temporal:7233`，避免不需要的 gRPCLB/SRV 查询在上游 DNS 不可用时阻塞正常 A 记录连接。业务服务仍通过容器服务名连接，不固定容器 IP。
+
+如果 `npm ci` 出现 `EAI_AGAIN` 或 `Exit handler never called`，先检查日志中依赖域名的 DNS 错误，不要把安装器的最终报错当成依赖代码错误。可以用一次性容器分别验证默认 DNS 与你网络中可用的 DNS。当前机器的独立 Colima `secretary` 环境已设置 Docker 引擎 DNS 为 `223.5.5.5`、`1.1.1.1`，用于绕过失效的 VM 转发器；没有改 macOS 系统 DNS。这是本机配置，不会强制其它部署使用同一解析器。企业私网域名应选择公司网络允许的 DNS。
+
+重启 Colima 后如 Docker 当前上下文被恢复为 `default`，可显式使用 `DOCKER_CONTEXT=colima-secretary make`。数据卷仍保留在原环境，不需要创建新的数据库或复制凭证。

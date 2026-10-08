@@ -1,38 +1,45 @@
 {
   "id": "video",
   "name": "视频解析",
-  "version": "1.0.1",
+  "version": "1.1.1",
   "entry": "dist/index.cjs",
   "description": "FFmpeg 抽取音频及画面，通过转写和视觉模型生成摘要与事项。",
   "configSchema": {
     "type": "object",
     "properties": {
       "transcriptionConfigId": {
-        "type": "string"
+        "type": "string",
+        "title": "转写 API 配置 ID"
       },
       "transcriptionModel": {
-        "type": "string"
+        "type": "string",
+        "title": "转写模型名称"
       },
       "visionConfigId": {
-        "type": "string"
+        "type": "string",
+        "title": "视觉 API 配置 ID"
       },
       "maxMB": {
         "type": "integer",
         "default": 100,
         "minimum": 1,
-        "maximum": 500
+        "maximum": 500,
+        "title": "最大文件大小（MB）"
       },
       "maxMinutes": {
         "type": "integer",
         "default": 30,
         "minimum": 1,
-        "maximum": 120
+        "maximum": 120,
+        "title": "最大视频时长（分钟）"
       },
       "frameInterval": {
         "type": "integer",
         "default": 120,
         "minimum": 30,
-        "maximum": 600
+        "maximum": 600,
+        "title": "期望抽帧间隔（秒）",
+        "description": "最多 20 帧；长视频会自动扩大间隔并覆盖整个视频。"
       }
     },
     "required": [

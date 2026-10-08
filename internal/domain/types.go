@@ -16,18 +16,19 @@ func ID() string {
 }
 
 type Config struct {
-	ID           string       `json:"id"`
-	Name         string       `json:"name"`
-	Kind         string       `json:"kind"`
-	Provider     string       `json:"provider"`
-	Protocol     string       `json:"protocol"`
-	BaseURL      string       `json:"baseUrl"`
-	Model        string       `json:"model"`
-	CredentialID string       `json:"credentialId,omitempty"`
-	MaxSteps     int          `json:"maxSteps"`
-	MaxTokens    int          `json:"maxTokens"`
-	TimeoutSec   int          `json:"timeoutSec"`
-	Capabilities Capabilities `json:"capabilities"`
+	ID            string       `json:"id"`
+	Name          string       `json:"name"`
+	Kind          string       `json:"kind"`
+	Provider      string       `json:"provider"`
+	Protocol      string       `json:"protocol"`
+	BaseURL       string       `json:"baseUrl"`
+	Model         string       `json:"model"`
+	CredentialID  string       `json:"credentialId,omitempty"`
+	MaxSteps      int          `json:"maxSteps"`
+	MaxTokens     int          `json:"maxTokens"`
+	MaxInputBytes int          `json:"maxInputBytes,omitempty"`
+	TimeoutSec    int          `json:"timeoutSec"`
+	Capabilities  Capabilities `json:"capabilities"`
 }
 
 type Capabilities struct {
@@ -62,7 +63,9 @@ type Session struct {
 	Channel         string            `json:"channel"`
 	ChannelProvider string            `json:"channelProvider,omitempty"`
 	ChannelAccount  string            `json:"channelAccount,omitempty"`
+	ChannelRoom     string            `json:"channelRoom,omitempty"`
 	Recipient       string            `json:"recipient,omitempty"`
+	OriginSessionID string            `json:"originSessionId,omitempty"`
 	Messages        []Message         `json:"messages"`
 	Summary         string            `json:"summary"`
 	Native          map[string]string `json:"native"`
@@ -102,9 +105,11 @@ type Manifest struct {
 }
 
 type TaskTemplate struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Steps []Step `json:"steps"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Steps      []Step `json:"steps"`
+	NotifyWhen string `json:"notifyWhen,omitempty"`
+	NotifyText string `json:"notifyText,omitempty"`
 }
 
 type Plugin struct {
@@ -119,19 +124,20 @@ type Plugin struct {
 }
 
 type Run struct {
-	ID         string            `json:"id"`
-	SessionID  string            `json:"sessionId"`
-	Prompt     string            `json:"prompt"`
-	Status     string            `json:"status"`
-	Config     Config            `json:"config"`
-	Persona    Persona           `json:"persona"`
-	Versions   map[string]string `json:"versions"`
-	Result     string            `json:"result"`
-	Error      string            `json:"error,omitempty"`
-	CreatedAt  time.Time         `json:"createdAt"`
-	FinishedAt *time.Time        `json:"finishedAt,omitempty"`
-	Usage      map[string]int    `json:"usage,omitempty"`
-	NativeID   string            `json:"nativeId,omitempty"`
+	ID           string            `json:"id"`
+	SessionID    string            `json:"sessionId"`
+	Prompt       string            `json:"prompt"`
+	Status       string            `json:"status"`
+	Config       Config            `json:"config"`
+	Persona      Persona           `json:"persona"`
+	Versions     map[string]string `json:"versions"`
+	Result       string            `json:"result"`
+	Error        string            `json:"error,omitempty"`
+	CreatedAt    time.Time         `json:"createdAt"`
+	FinishedAt   *time.Time        `json:"finishedAt,omitempty"`
+	Usage        map[string]int    `json:"usage,omitempty"`
+	NativeID     string            `json:"nativeId,omitempty"`
+	ReplyPending bool              `json:"replyPending,omitempty"`
 }
 
 type Event struct {
@@ -159,6 +165,8 @@ type Task struct {
 	Versions   map[string]string `json:"versions"`
 	Revision   int               `json:"revision"`
 	Notify     bool              `json:"notify"`
+	NotifyWhen string            `json:"notifyWhen,omitempty"`
+	NotifyText string            `json:"notifyText,omitempty"`
 	Error      string            `json:"error,omitempty"`
 }
 

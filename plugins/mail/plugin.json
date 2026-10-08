@@ -1,30 +1,40 @@
 {
   "id": "mail",
   "name": "IMAP 邮箱",
-  "version": "1.0.1",
+  "version": "1.1.2",
   "entry": "dist/index.cjs",
-  "description": "增量读取、搜索、摘要和标记已读。支持 TLS IMAP；不发送邮件。",
+  "description": "TLS IMAP 邮箱连接测试、增量监听提醒、搜索、摘要与标记已读。新监听默认只提醒新增邮件。",
   "configSchema": {
     "type": "object",
     "properties": {
       "host": {
-        "type": "string"
+        "type": "string",
+        "title": "IMAP 服务器",
+        "description": "例如 imap.qq.com；需先在邮箱设置中开启 IMAP。"
       },
       "port": {
         "type": "integer",
         "default": 993,
         "minimum": 1,
-        "maximum": 65535
+        "maximum": 65535,
+        "title": "TLS 端口",
+        "description": "使用加密的 IMAP 连接，通常为 993。"
       },
       "username": {
-        "type": "string"
+        "type": "string",
+        "title": "邮箱账号",
+        "description": "完整邮箱地址。"
       },
       "password": {
         "type": "string",
-        "format": "password"
+        "format": "password",
+        "title": "IMAP 授权码",
+        "description": "使用邮箱提供的应用密码或授权码；通过凭证库引用保存。"
       },
       "summaryConfigId": {
-        "type": "string"
+        "type": "string",
+        "title": "摘要模型配置",
+        "description": "可选。摘要工具需要支持 API 直连的模型配置；新邮件提醒无需模型。"
       }
     },
     "required": [
@@ -35,6 +45,116 @@
     "additionalProperties": false
   },
   "tools": [
+    {
+      "name": "test_connection",
+      "description": "验证 TLS IMAP 登录和文件夹访问，返回邮件数量；不会读取正文、标记已读或推进监听游标。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "default": "INBOX",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "additionalProperties": false
+      },
+      "permissions": [
+        "mail.read"
+      ],
+      "timeoutSec": 90,
+      "retrySafe": true
+    },
+    {
+      "name": "watch",
+      "description": "检查新邮件并返回可发送的提醒文本；changed=false 时无需通知。首次建立基线不提醒历史邮件，使用稳定 operationId 可安全重试。 每个订阅使用不同 monitorId，同一订阅跨运行保持不变；未提供时共享该邮箱的默认监听游标。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "default": "INBOX",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20
+          },
+          "includeExisting": {
+            "type": "boolean",
+            "default": false,
+            "description": "首次监听或 UIDVALIDITY 重置时也读取历史邮件。"
+          },
+          "monitorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "每个订阅不同，同一订阅跨运行保持不变；建议用任务 ID。未提供时共享默认监听游标。"
+          }
+        },
+        "additionalProperties": false
+      },
+      "permissions": [
+        "mail.read",
+        "storage"
+      ],
+      "timeoutSec": 120,
+      "retrySafe": true,
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean"
+          },
+          "notificationText": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array"
+          },
+          "artifactId": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "uidValidity": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "object"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "initialized": {
+            "type": "boolean"
+          },
+          "reset": {
+            "type": "boolean"
+          },
+          "checkedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "changed",
+          "notificationText",
+          "messages",
+          "folder",
+          "uidValidity",
+          "cursor",
+          "hasMore",
+          "initialized",
+          "reset",
+          "checkedAt"
+        ]
+      }
+    },
     {
       "name": "search",
       "description": "按正文搜索邮件，读取最近匹配邮件。",
@@ -93,7 +213,7 @@
     },
     {
       "name": "summarize",
-      "description": "总结最近邮件并提取待办事项，保存解析结果。",
+      "description": "总结最近邮件并提取待办事项，校验摘要、事项、截止时间和来源 UID 后保存；无效模型输出会报错，不保存为成功结果。",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -160,6 +280,24 @@
     }
   ],
   "templates": [
+    {
+      "id": "new-mail",
+      "name": "新邮件提醒",
+      "steps": [
+        {
+          "id": "watch",
+          "kind": "tool",
+          "tool": "mail__watch",
+          "arguments": {
+            "folder": "INBOX",
+            "limit": 20,
+            "includeExisting": false
+          }
+        }
+      ],
+      "notifyWhen": "${steps.watch.changed}",
+      "notifyText": "${steps.watch.notificationText}"
+    },
     {
       "id": "daily-summary",
       "name": "每日邮箱摘要",

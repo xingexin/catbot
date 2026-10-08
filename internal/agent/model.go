@@ -25,6 +25,7 @@ type Call struct {
 }
 type Entry struct {
 	Role, Text, CallID string
+	IsError            bool
 	Images             []string
 	Calls              []Call
 	Raw                []any
@@ -55,7 +56,11 @@ func ValidateConfig(c *domain.Config) error {
 		if c.Provider != "codebuddy" && c.Provider != "claude" && c.Provider != "codex" {
 			return errors.New("unsupported agent SDK")
 		}
-		c.Capabilities.Tools = true
+		if c.Capabilities.Images {
+			return errors.New("Agent SDK image input is not supported; use an image-capable API configuration")
+		}
+		// Tools is an administrator opt-in, unlike the SDK's fixed transport
+		// capabilities. Preserve an explicit opt-out when validating a save.
 		c.Capabilities.Stream = true
 		c.Capabilities.Resume = true
 	} else {
@@ -84,6 +89,12 @@ func ValidateConfig(c *domain.Config) error {
 	}
 	if c.MaxTokens < 1 || c.MaxTokens > 32768 {
 		return errors.New("maxTokens must be 1..32768")
+	}
+	if c.MaxInputBytes == 0 {
+		c.MaxInputBytes = DefaultMaxInputBytes
+	}
+	if c.MaxInputBytes < 8<<10 || c.MaxInputBytes > 2<<20 {
+		return errors.New("maxInputBytes must be 8192..2097152 (serialized API conversation bytes, not tokens)")
 	}
 	if c.TimeoutSec == 0 {
 		c.TimeoutSec = 180
@@ -116,7 +127,7 @@ func makeBody(c domain.Config, system string, h []Entry, tools []domain.Tool) ma
 		msgs := []any{}
 		for _, e := range h {
 			if e.Role == "tool" {
-				msgs = append(msgs, map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": e.CallID, "content": e.Text}}})
+				msgs = append(msgs, map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": e.CallID, "content": e.Text, "is_error": e.IsError}}})
 				continue
 			}
 			blocks := e.Raw
@@ -272,8 +283,15 @@ func (m *Model) Step(ctx context.Context, c domain.Config, key, system string, h
 	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		return parseStream(resp.Body, c.Protocol, emit)
 	}
+	dataBytes, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
+	if err != nil {
+		return Turn{}, fmt.Errorf("read model response: %w", err)
+	}
+	if len(dataBytes) > 8<<20 {
+		return Turn{}, errors.New("model response exceeds 8 MiB")
+	}
 	var data map[string]any
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&data); err != nil {
+	if err := json.Unmarshal(dataBytes, &data); err != nil {
 		return Turn{}, fmt.Errorf("decode model response: %w", err)
 	}
 	turn, err := parseJSON(data, c.Protocol)
@@ -312,8 +330,14 @@ func parseJSON(data map[string]any, protocol string) (Turn, error) {
 		if str(ch["finish_reason"]) == "length" {
 			return t, errors.New("model output token limit reached")
 		}
+		if str(ch["finish_reason"]) == "content_filter" {
+			return t, errors.New("model output was stopped by the provider content filter")
+		}
 		msg := object(ch["message"])
 		t.Text = str(msg["content"])
+		if t.Text == "" {
+			t.Text = str(msg["refusal"])
+		}
 		for _, v := range array(msg["tool_calls"]) {
 			x := object(v)
 			f := object(x["function"])
@@ -331,13 +355,21 @@ func parseJSON(data map[string]any, protocol string) (Turn, error) {
 				t.Calls = append(t.Calls, Call{str(x["call_id"]), str(x["name"]), str(x["arguments"])})
 			case "message":
 				for _, p := range array(x["content"]) {
-					t.Text += str(object(p)["text"])
+					part := object(p)
+					if str(part["type"]) == "refusal" {
+						t.Text += str(part["refusal"])
+					} else {
+						t.Text += str(part["text"])
+					}
 				}
 			}
 		}
 	case "anthropic":
 		if str(data["stop_reason"]) == "max_tokens" {
 			return t, errors.New("model output token limit reached")
+		}
+		if str(data["stop_reason"]) == "pause_turn" {
+			return t, errors.New("model paused a server tool turn; server tools are not supported by this executor")
 		}
 		t.Raw = array(data["content"])
 		for _, v := range t.Raw {
@@ -351,7 +383,36 @@ func parseJSON(data map[string]any, protocol string) (Turn, error) {
 			}
 		}
 	}
-	return t, nil
+	return t, validateTurn(t)
+}
+
+func validateTurn(t Turn) error {
+	if len(t.Text) > 256<<10 {
+		return errors.New("model output too large")
+	}
+	if len(t.Calls) > 32 {
+		return errors.New("too many tool calls in one step")
+	}
+	seen := map[string]bool{}
+	for _, call := range t.Calls {
+		if call.ID == "" || call.Name == "" {
+			return errors.New("tool call must have an ID and name")
+		}
+		if seen[call.ID] {
+			return errors.New("model returned duplicate tool call IDs")
+		}
+		seen[call.ID] = true
+		if len(call.ID) > 256 || len(call.Name) > 256 {
+			return errors.New("tool call ID or name is too large")
+		}
+		if len(call.Arguments) > 128<<10 {
+			return errors.New("tool arguments too large")
+		}
+	}
+	if strings.TrimSpace(t.Text) == "" && len(t.Calls) == 0 {
+		return errors.New("model returned no text or supported tool calls")
+	}
+	return nil
 }
 
 func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
@@ -359,6 +420,7 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 	calls := map[int]*Call{}
 	blocks := map[int]map[string]any{}
 	done := false
+	terminal := false
 	truncated := false
 	scanner := bufio.NewScanner(io.LimitReader(r, 16<<20))
 	scanner.Buffer(make([]byte, 4096), 2<<20)
@@ -366,6 +428,7 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 	handle := func(data string) error {
 		if data == "[DONE]" {
 			done = true
+			terminal = true
 			return nil
 		}
 		if data == "" {
@@ -395,6 +458,10 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 				if finish == "length" {
 					truncated = true
 				}
+				if finish == "content_filter" {
+					return errors.New("model output was stopped by the provider content filter")
+				}
+				delta += str(d["refusal"])
 				for _, cv := range array(d["tool_calls"]) {
 					c := object(cv)
 					i := number(c["index"])
@@ -412,6 +479,8 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 			switch str(x["type"]) {
 			case "response.output_text.delta":
 				delta = str(x["delta"])
+			case "response.refusal.delta":
+				delta = str(x["delta"])
 			case "response.completed":
 				parsed, err := parseJSON(object(x["response"]), protocol)
 				if err != nil {
@@ -424,6 +493,7 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 					delta = parsed.Text
 				}
 				done = true
+				terminal = true
 			case "response.incomplete", "response.failed":
 				return errors.New("model response did not complete")
 			}
@@ -437,6 +507,9 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 			case "content_block_start":
 				block := object(x["content_block"])
 				blocks[i] = block
+				if str(block["type"]) == "text" {
+					delta = str(block["text"])
+				}
 				if str(block["type"]) == "tool_use" {
 					calls[i] = &Call{ID: str(block["id"]), Name: str(block["name"])}
 				}
@@ -468,8 +541,12 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 				if str(object(x["delta"])["stop_reason"]) == "max_tokens" {
 					truncated = true
 				}
+				if str(object(x["delta"])["stop_reason"]) == "pause_turn" {
+					return errors.New("model paused a server tool turn; server tools are not supported by this executor")
+				}
 			case "message_stop":
 				done = true
+				terminal = true
 			}
 		}
 		if len(delta) > 0 {
@@ -486,6 +563,9 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 				return errors.New("tool arguments too large")
 			}
 		}
+		if len(calls) > 32 {
+			return errors.New("too many tool calls in one step")
+		}
 		return nil
 	}
 	for scanner.Scan() {
@@ -495,6 +575,9 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 				return t, err
 			}
 			dataLines = nil
+			if terminal {
+				break
+			}
 			continue
 		}
 		if strings.HasPrefix(line, "data:") {
@@ -524,6 +607,13 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 		c := calls[i]
 		if c.Arguments == "" {
 			c.Arguments = "{}"
+			if protocol == "anthropic" && blocks[i]["input"] != nil {
+				initial, err := json.Marshal(blocks[i]["input"])
+				if err != nil {
+					return t, fmt.Errorf("encode streamed tool arguments: %w", err)
+				}
+				c.Arguments = string(initial)
+			}
 		}
 		t.Calls = append(t.Calls, *c)
 		if protocol == "anthropic" {
@@ -544,5 +634,5 @@ func parseStream(r io.Reader, protocol string, emit Emit) (Turn, error) {
 			t.Raw = append(t.Raw, blocks[i])
 		}
 	}
-	return t, nil
+	return t, validateTurn(t)
 }

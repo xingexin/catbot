@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agentTest/internal/domain"
+	"agentTest/internal/job"
 	"agentTest/internal/store"
 )
 
@@ -75,10 +76,16 @@ func (a *App) saveTaskLocked(ctx context.Context, t domain.Task) (domain.Task, e
 	if err := a.Store.Get(ctx, "persona", t.PersonaID, &persona); err != nil {
 		return t, fmt.Errorf("task persona: %w", err)
 	}
+	if t.Notify && t.SessionID == "" {
+		return t, errors.New("开启通知时必须选择结果通知会话")
+	}
 	if t.SessionID != "" {
 		var s domain.Session
 		if err := a.Store.Get(ctx, "session", t.SessionID, &s); err != nil {
 			return t, err
+		}
+		if t.Notify && s.Channel == "task" {
+			return t, errors.New("请选择用户的 QQ 或 Web 会话接收通知，不能选择后台任务会话")
 		}
 	}
 	versions, err := a.Plugins.Snapshots(ctx)
@@ -91,10 +98,13 @@ func (a *App) saveTaskLocked(ctx context.Context, t domain.Task) (domain.Task, e
 		return t, err
 	}
 	allowed := map[string]bool{}
+	toolOutputs := map[string]map[string]any{}
 	for _, tool := range tools {
 		allowed[tool.Name] = true
+		toolOutputs[tool.Name] = tool.OutputSchema
 	}
 	seen := map[string]bool{}
+	stepOutputs := map[string]map[string]any{}
 	dependencies := map[string]string{}
 	for _, step := range t.Steps {
 		if step.DelaySec < 0 || step.DelaySec > 31*86400 {
@@ -111,10 +121,14 @@ func (a *App) saveTaskLocked(ctx context.Context, t domain.Task) (domain.Task, e
 			}
 			id := strings.SplitN(step.Tool, "__", 2)[0]
 			dependencies[id] = versions[id]
+			stepOutputs[step.ID] = toolOutputs[step.Tool]
 		case "agent":
 			if step.Prompt == "" {
 				return t, errors.New("agent step prompt is required")
 			}
+			stepOutputs[step.ID] = objectSchema(map[string]any{
+				"text": map[string]any{"type": "string"}, "runId": map[string]any{"type": "string"},
+			}, "text", "runId")
 			for _, tool := range tools {
 				dependencies[tool.PluginID] = versions[tool.PluginID]
 			}
@@ -123,6 +137,25 @@ func (a *App) saveTaskLocked(ctx context.Context, t domain.Task) (domain.Task, e
 		}
 	}
 	t.Versions = dependencies
+	for _, field := range []struct{ name, expression, kind string }{
+		{"notifyWhen", t.NotifyWhen, "boolean"}, {"notifyText", t.NotifyText, "string"},
+	} {
+		expression := field.expression
+		if expression == "" {
+			continue
+		}
+		stepID, err := job.ReferenceStep(expression)
+		if err != nil || len(expression) > 200 {
+			return t, errors.New("notification fields must be a single step reference, for example ${steps.watch.changed}")
+		}
+		if !seen[stepID] {
+			return t, errors.New("notification references an unknown step")
+		}
+		if err := validateNotificationOutput(expression, stepOutputs[stepID], field.kind); err != nil {
+			return t, fmt.Errorf("%s: %w; omit notifyWhen for unconditional reminders", field.name, err)
+		}
+	}
+
 	t.Status = "provisioning"
 	t.Error = ""
 	if err := a.Store.Put(ctx, "schedule-intent", t.ID, scheduleIntent{Task: t, Previous: previous}); err != nil {
@@ -150,6 +183,9 @@ func (a *App) ControlTask(ctx context.Context, id, action string) (any, error) {
 	return a.controlTask(ctx, id, action, domain.ID())
 }
 func (a *App) controlTask(ctx context.Context, id, action, operationID string) (any, error) {
+	return a.controlTaskForSession(ctx, id, action, operationID, "")
+}
+func (a *App) controlTaskForSession(ctx context.Context, id, action, operationID, expectedSessionID string) (any, error) {
 	if a.Scheduler == nil {
 		return nil, errors.New("Temporal is not connected")
 	}
@@ -161,6 +197,9 @@ func (a *App) controlTask(ctx context.Context, id, action, operationID string) (
 	defer unlock()
 	if err := a.Store.Get(ctx, "task", id, &t); err != nil {
 		return nil, err
+	}
+	if expectedSessionID != "" && t.SessionID != expectedSessionID {
+		return nil, errors.New("task not authorized for this group conversation")
 	}
 	if action == "trigger" {
 		if t.Status == "cancelled" {

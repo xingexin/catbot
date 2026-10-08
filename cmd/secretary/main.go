@@ -73,7 +73,7 @@ func run() error {
 	defer c.Close()
 	engine := job.New(c, s, a)
 	a.Scheduler = engine
-	a.Notifier = a.SendMessage
+	a.Notifier = a.DeliverNotification
 	if err := a.Bootstrap(ctx); err != nil {
 		return err
 	}

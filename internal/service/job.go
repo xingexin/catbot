@@ -48,10 +48,17 @@ func (a *App) Step(ctx context.Context, in job.StepInput) (any, error) {
 		return nil, err
 	} else {
 		sessionID := "task-session-" + in.ExecutionID
-		session := domain.Session{ID: sessionID, Title: in.Snapshot.Task.Name, ConfigID: in.Snapshot.Config.ID, PersonaID: in.Snapshot.Persona.ID, Channel: "task", Messages: []domain.Message{}}
+		session := domain.Session{ID: sessionID, Title: in.Snapshot.Task.Name, ConfigID: in.Snapshot.Config.ID, PersonaID: in.Snapshot.Persona.ID, Channel: "task", OriginSessionID: in.Snapshot.Task.SessionID, Messages: []domain.Message{}}
 		var found domain.Session
 		if err := a.Store.Get(ctx, "session", sessionID, &found); errors.Is(err, store.ErrNotFound) {
 			if err := a.Store.Put(ctx, "session", sessionID, session); err != nil {
+				return nil, err
+			}
+		} else if err != nil {
+			return nil, err
+		} else if found.OriginSessionID == "" && session.OriginSessionID != "" {
+			found.OriginSessionID = session.OriginSessionID
+			if err := a.Store.Put(ctx, "session", sessionID, found); err != nil {
 				return nil, err
 			}
 		}
@@ -66,18 +73,4 @@ func (a *App) Step(ctx context.Context, in job.StepInput) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"text": run.Result, "runId": run.ID}, nil
-}
-func (a *App) Notify(ctx context.Context, snapshot job.Snapshot, text, operationID string) error {
-	if snapshot.Task.SessionID == "" {
-		return nil
-	}
-	id := "notification-" + operationID
-	value := map[string]any{"id": id, "taskId": snapshot.Task.ID, "sessionId": snapshot.Task.SessionID, "text": text, "createdAt": time.Now().UTC(), "status": "saved"}
-	if err := a.Store.Put(ctx, "notification", id, value); err != nil {
-		return err
-	}
-	if a.Notifier != nil {
-		return a.Notifier(ctx, snapshot.Task.SessionID, text, operationID)
-	}
-	return nil
 }

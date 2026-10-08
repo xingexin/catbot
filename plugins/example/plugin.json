@@ -1,7 +1,7 @@
 {
   "id": "example",
   "name": "示例工具",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "entry": "dist/index.cjs",
   "description": "最小独立插件：文本回显与命名便签。",
   "configSchema": {

@@ -297,6 +297,38 @@ try {
     path: resolve(out, "artifacts.png"),
     fullPage: true,
   });
+  const calls = (await api("/model-calls")).filter(
+    (call) => call.operationId === videoRun.executionId + ":parse",
+  );
+  assert(calls.some((call) => call.kind === "transcribe"));
+  assert(calls.some((call) => call.kind === "generate"));
+  for (const call of calls) {
+    assert.equal(call.pluginId, "video");
+    assert.equal(call.status, "completed");
+    assert(call.pluginVersion);
+    assert(call.finishedAt && call.durationMs >= 0);
+    assert(Object.hasOwn(call, "usage"), "Unknown usage must be explicit");
+    for (const forbidden of ["prompt", "images", "apiKey", "baseUrl", "text"])
+      assert(!Object.hasOwn(call, forbidden));
+  }
+  report.modelCalls = calls.map((call) => ({
+    id: call.id,
+    kind: call.kind,
+    pluginVersion: call.pluginVersion,
+    operationId: call.operationId,
+    status: call.status,
+    durationMs: call.durationMs,
+    usage: call.usage,
+  }));
+  await page.getByRole("menuitem", { name: "运行记录" }).click();
+  await page.getByRole("button", { name: /刷\s*新/ }).click();
+  await page.getByRole("heading", { name: "插件模型调用", exact: true }).waitFor();
+  await page.getByText("fixture-asr", { exact: true }).first().waitFor();
+  await page.screenshot({
+    path: resolve(out, "model-calls.png"),
+    fullPage: true,
+  });
+  report.browser.push("plugin model ledger with operation, version and known usage");
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(out, "browser-report.json"),

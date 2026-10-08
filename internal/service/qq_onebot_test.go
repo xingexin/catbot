@@ -182,7 +182,7 @@ func TestOneBotRealConversationPath(t *testing.T) {
 		}
 		return agent.Result{Text: "已安排 [CQ:at,qq=all]"}, nil
 	})
-	a.Notifier = a.SendMessage
+	a.Notifier = a.DeliverNotification
 	if w := postOneBot(a, oneBotEvent(), testOneBotToken); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}

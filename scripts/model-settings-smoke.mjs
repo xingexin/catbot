@@ -81,6 +81,13 @@ try {
   const dialog = page.getByRole("dialog", { name: "模型配置", exact: true });
   await dialog.getByLabel("配置名称", { exact: true }).fill("UI 模型接入验证");
   await dialog.getByLabel("Model", { exact: true }).fill("fixture-only");
+  assert(
+    await dialog.getByLabel("最大输出 Token", { exact: true }).isVisible(),
+  );
+  await dialog
+    .getByRole("checkbox", { name: "流式输出", exact: true })
+    .uncheck();
+  await dialog.getByRole("checkbox", { name: "图片输入", exact: true }).check();
   await dialog
     .getByLabel("Base URL", { exact: true })
     .fill("http://fixture.invalid/v1");
@@ -136,6 +143,8 @@ try {
   assert.equal(savedConfigs[0].kind, "api");
   assert.equal(savedConfigs[0].protocol, "openai-responses");
   assert.equal(savedConfigs[0].credentialId, "ui-credential");
+  assert.equal(savedConfigs[0].capabilities.stream, false);
+  assert.equal(savedConfigs[0].capabilities.images, true);
   await models.getByLabel("搜索模型接入").fill("UI 模型接入验证");
   await models.getByText("UI 模型接入验证", { exact: true }).waitFor();
   await models.getByRole("button", { name: "添加 Agent SDK" }).click();
@@ -158,10 +167,63 @@ try {
     .filter({ hasText: "CodeBuddy Agent SDK" })
     .click();
   await dialog.getByLabel("Model", { exact: true }).fill("glm-5.3");
+  // Switching an image-capable API draft to SDK clears unsupported settings.
+  await dialog.getByLabel("接入方式", { exact: true }).press("ArrowDown");
+  await page
+    .locator(".ant-select-dropdown:visible .ant-select-item-option")
+    .filter({ hasText: "模型 API 直连" })
+    .click();
+  await dialog.getByRole("checkbox", { name: "图片输入", exact: true }).check();
+  await dialog
+    .getByRole("checkbox", { name: "流式输出", exact: true })
+    .uncheck();
+  await dialog
+    .getByRole("checkbox", { name: "工具调用", exact: true })
+    .uncheck();
+  await dialog.getByLabel("接入方式", { exact: true }).press("ArrowDown");
+  await page
+    .locator(".ant-select-dropdown:visible .ant-select-item-option")
+    .filter({ hasText: "Agent SDK" })
+    .click();
+  assert.equal(
+    await dialog
+      .getByRole("checkbox", { name: "图片输入", exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await dialog
+      .getByRole("checkbox", { name: "流式输出", exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await dialog.getByLabel("最大输出 Token", { exact: true }).count(),
+    0,
+  );
+  assert.equal(
+    await dialog
+      .getByRole("checkbox", { name: "工具调用", exact: true })
+      .isChecked(),
+    false,
+  );
+  await dialog.getByText(/SDK 提供流式输出和会话恢复/).waitFor();
+  await dialog.getByLabel("Model", { exact: true }).click();
+  await page.locator(".ant-select-dropdown:visible").waitFor({ state: "hidden" });
+  await dialog.screenshot({
+    path: new URL("sdk-capabilities.png", out).pathname,
+    animations: "disabled",
+  });
   await dialog.getByRole("button", { name: /确\s*定/ }).click();
   await dialog.waitFor({ state: "hidden" });
   assert.equal(savedConfigs[1].kind, "sdk");
   assert.equal(savedConfigs[1].provider, "codebuddy");
+  assert.equal(savedConfigs[1].capabilities.tools, false);
+  // Ant Form omits unmounted fields from validateFields(). The backend sets
+  // SDK stream/resume true and images defaults false (covered by HTTP tests).
+  assert.notEqual(savedConfigs[1].capabilities.images, true);
+  assert.notEqual(savedConfigs[1].capabilities.stream, false);
+  assert.notEqual(savedConfigs[1].capabilities.resume, false);
   // The legacy menu edits the same data set, under the requested clearer name.
   await page.getByRole("menuitem", { name: "模型配置" }).click();
   await page.getByText("UI CodeBuddy 验证", { exact: true }).waitFor();
@@ -184,6 +246,9 @@ try {
       "Escape while saving credential preserves model draft",
       "credential automatically selected without plaintext in model payload",
       "CodeBuddy SDK selection",
+      "API image and streaming settings remain editable",
+      "SDK hides unsupported image and output-token controls and fixed streaming control",
+      "API to SDK switch clears images and retains tool opt-out in saved payload",
       "existing configurations visible",
       "no page errors",
     ],

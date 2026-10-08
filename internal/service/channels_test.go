@@ -122,7 +122,7 @@ func TestConversationAndTaskNotificationAcrossSenders(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			a.Notifier = a.SendMessage
+			a.Notifier = a.DeliverNotification
 			a.Direct = execFunc(func(_ context.Context, r agent.Request, _ agent.Emit) (agent.Result, error) {
 				if r.Run.Persona.ID != "secretary" || r.Run.Config.ID != "config" {
 					t.Error("common execution configuration lost")

@@ -64,7 +64,15 @@ export function Editor({
   const [credentialOpen, setCredentialOpen] = useState(false);
   const [savingCredential, setSavingCredential] = useState(false);
   const [credentialForm] = Form.useForm();
+  const executionKind = Form.useWatch("kind", form);
   const { message } = App.useApp();
+  useEffect(() => {
+    if (edit?.kind === "config" && executionKind === "sdk") {
+      form.setFieldValue(["capabilities", "images"], false);
+      form.setFieldValue(["capabilities", "stream"], true);
+      form.setFieldValue(["capabilities", "resume"], true);
+    }
+  }, [edit?.kind, executionKind, form]);
   useEffect(() => {
     if (!edit) {
       setCredentialOpen(false);
@@ -209,31 +217,75 @@ export function Editor({
               添加 API Key
             </Button>
             <div className="form-grid">
-              <Form.Item name="maxSteps" label="最大循环步数">
+              <Form.Item
+                name="maxSteps"
+                label="最大循环步数"
+                help="API 限制模型轮次；Claude / CodeBuddy 使用 SDK turn 限制。Codex SDK 当前以超时限制整轮执行。"
+              >
                 <InputNumber min={1} max={50} />
               </Form.Item>
               <Form.Item name="timeoutSec" label="超时（秒）">
                 <InputNumber min={1} max={3600} />
               </Form.Item>
-              <Form.Item name="maxTokens" label="最大输出 Token">
-                <InputNumber min={1} max={32768} />
+              <Form.Item noStyle shouldUpdate>
+                {() =>
+                  form.getFieldValue("kind") === "api" && (
+                    <Form.Item name="maxTokens" label="最大输出 Token">
+                      <InputNumber min={1} max={32768} />
+                    </Form.Item>
+                  )
+                }
               </Form.Item>
             </div>
-            <Space wrap>
-              {[
-                ["tools", "工具调用"],
-                ["stream", "流式输出"],
-                ["images", "图片输入"],
-              ].map(([key, label]) => (
-                <Form.Item
-                  key={key}
-                  name={["capabilities", key]}
-                  valuePropName="checked"
-                >
-                  <Checkbox>{label}</Checkbox>
-                </Form.Item>
-              ))}
-            </Space>
+            <Form.Item noStyle shouldUpdate>
+              {() =>
+                form.getFieldValue("kind") === "api" && (
+                  <Form.Item
+                    name="maxInputBytes"
+                    label="上下文输入预算（字节）"
+                    help="含人格、工具声明和历史。超出时裁剪旧对话；保留当前请求。需根据模型窗口调整，这不是精确 Token 数。"
+                  >
+                    <InputNumber
+                      min={8192}
+                      max={2097152}
+                      step={8192}
+                      style={{ width: 200 }}
+                    />
+                  </Form.Item>
+                )
+              }
+            </Form.Item>
+            <Form.Item noStyle shouldUpdate>
+              {() => (
+                <>
+                  <Space wrap>
+                    {[
+                      ["tools", "工具调用"],
+                      ...(form.getFieldValue("kind") === "sdk"
+                        ? []
+                        : [
+                            ["stream", "流式输出"],
+                            ["images", "图片输入"],
+                          ]),
+                    ].map(([key, label]) => (
+                      <Form.Item
+                        key={key}
+                        name={["capabilities", key]}
+                        valuePropName="checked"
+                      >
+                        <Checkbox>{label}</Checkbox>
+                      </Form.Item>
+                    ))}
+                  </Space>
+                  {form.getFieldValue("kind") === "sdk" && (
+                    <p className="muted">
+                      SDK 提供流式输出和会话恢复；当前 SDK 仅支持文本输入。
+                      输出上限由 SDK、模型和宿主的字节限制共同控制。
+                    </p>
+                  )}
+                </>
+              )}
+            </Form.Item>
             <p className="muted">
               能力需与所选模型一致。SDK 原生工具循环由 SDK 执行；模型 API
               的循环由本框架执行。
@@ -385,7 +437,16 @@ export function Editor({
                     <Select
                       allowClear
                       options={rows("configs")
-                        .filter((c) => c.kind === "api")
+                        .filter(
+                          (c) =>
+                            c.kind === "api" &&
+                            (name !== "visionConfigId" ||
+                              c.capabilities?.images) &&
+                            (name !== "transcriptionConfigId" ||
+                              ["openai-chat", "openai-responses"].includes(
+                                c.protocol,
+                              )),
+                        )
                         .map((c) => ({ value: c.id, label: c.name }))}
                     />
                   ) : (
@@ -479,12 +540,16 @@ export function Editor({
                 rows={rows("personas")}
               />
             </div>
-            <SelectField
-              name="sessionId"
-              label="结果通知会话"
-              rows={rows("sessions")}
-              required={false}
-            />
+            <Form.Item noStyle shouldUpdate>
+              {() => (
+                <SelectField
+                  name="sessionId"
+                  label="结果通知会话"
+                  rows={rows("sessions").filter((s) => s.channel !== "task")}
+                  required={!!form.getFieldValue("notify")}
+                />
+              )}
+            </Form.Item>
             <Form.List name="steps">
               {(fields, { add, remove }) => (
                 <>
@@ -587,7 +652,21 @@ export function Editor({
               后续工具参数可引用前面步骤的输出，例如：
               {"${steps.parse.artifactId}"}
             </p>
-            <Space>
+            <details>
+              <summary>条件通知（高级）</summary>
+              <div className="form-grid">
+                <Form.Item
+                  name="notifyWhen"
+                  label="仅在此步骤结果为 true 时提醒（可选）"
+                >
+                  <Input placeholder="${steps.watch.changed}" />
+                </Form.Item>
+                <Form.Item name="notifyText" label="提醒内容来自步骤（可选）">
+                  <Input placeholder="${steps.watch.notificationText}" />
+                </Form.Item>
+              </div>
+            </details>
+            <Space wrap>
               <Form.Item name="notify" valuePropName="checked">
                 <Checkbox>完成后通知</Checkbox>
               </Form.Item>

@@ -71,7 +71,7 @@ func testApp(t *testing.T) *App {
 	if err := a.Bootstrap(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	c := domain.Config{ID: "config", Name: "fixture", Kind: "api", Model: "fixture", Protocol: "openai-chat", BaseURL: "http://127.0.0.1:1", MaxSteps: 3, TimeoutSec: 5}
+	c := domain.Config{ID: "config", Name: "fixture", Kind: "api", Model: "fixture", Protocol: "openai-chat", BaseURL: "http://127.0.0.1:1", MaxSteps: 3, TimeoutSec: 5, Capabilities: domain.Capabilities{Tools: true}}
 	if err := a.Store.Put(t.Context(), "config", c.ID, c); err != nil {
 		t.Fatal(err)
 	}
