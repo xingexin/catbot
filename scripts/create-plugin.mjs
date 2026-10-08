@@ -9,7 +9,7 @@ await cp(resolve(example,"src"),resolve(target,"src"),{recursive:true});
 await cp(resolve(example,"tsconfig.json"),resolve(target,"tsconfig.json"));
 const manifest=JSON.parse(await readFile(resolve(example,"plugin.json"),"utf8"));
 manifest.id=name;manifest.name=name;manifest.version="1.0.0";manifest.templates=[];
-const pkg=JSON.parse(await readFile(resolve(example,"package.json"),"utf8"));pkg.name="@secretary/plugin-"+name;pkg.version="1.0.0";
+const pkg=JSON.parse(await readFile(resolve(example,"package.json"),"utf8"));pkg.name="@catbot/plugin-"+name;pkg.version="1.0.0";
 await writeFile(resolve(target,"plugin.json"),JSON.stringify(manifest,null,2)+"\n");
 await writeFile(resolve(target,"package.json"),JSON.stringify(pkg,null,2)+"\n");
 process.stdout.write("Created plugins/"+name+". Run npm install, then npm run build -w plugins/"+name+".\n");

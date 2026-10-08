@@ -15,7 +15,7 @@ npm run build -w plugins/notes
 本地开发直接在 Web 注册 `notes`。Docker 环境先复制独立包：
 
 ```sh
-docker cp ./plugins/notes secretary-backend-1:/app/plugins/notes
+./scripts/compose cp ./plugins/notes backend:/app/plugins/notes
 ```
 
 随后 Web「注册 / 更新插件」填写 `notes`。注册时宿主把包复制到持久化目录并固定摘要，之后重建容器不会丢失已注册包。
@@ -55,7 +55,7 @@ docker cp ./plugins/notes secretary-backend-1:/app/plugins/notes
 ## 实现工具
 
 ```ts
-import { serve } from "@secretary/plugin-sdk";
+import { serve } from "@catbot/plugin-sdk";
 
 serve({
   save: async (args, { host, signal, operationId }) => {

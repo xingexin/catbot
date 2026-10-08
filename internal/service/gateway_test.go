@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/domain"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 type tokenTransport struct{ token string }

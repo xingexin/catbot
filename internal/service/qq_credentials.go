@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"agentTest/internal/secret"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/secret"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 type qqAccess struct {

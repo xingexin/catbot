@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 type Request struct {

@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/secret"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/secret"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 type loginSession struct {

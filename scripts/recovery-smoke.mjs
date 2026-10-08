@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
+import { composeContainer, dockerEnvironment } from "./deployment.mjs";
 const env = Object.fromEntries(
   (await readFile(".env", "utf8"))
     .split("\n")
@@ -66,14 +67,12 @@ const started = Date.now();
 execFileSync(
   "docker",
   [
-    "--context",
-    process.env.TEST_DOCKER_CONTEXT ?? "colima-secretary",
     "restart",
     "--time",
     "2",
-    "secretary-backend-1",
+    composeContainer("backend"),
   ],
-  { stdio: "pipe" },
+  { stdio: "pipe", env: dockerEnvironment },
 );
 for (let i = 0; i < 200; i++) {
   try {

@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"agentTest/internal/job"
-	"agentTest/internal/service"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/job"
+	"github.com/xingexin/catbot/internal/service"
+	"github.com/xingexin/catbot/internal/store"
 	"go.temporal.io/sdk/client"
 )
 
@@ -26,7 +26,7 @@ func env(key, fallback string) string {
 }
 func main() {
 	if err := run(); err != nil {
-		slog.Error("secretary stopped", "error", err)
+		slog.Error("catbot stopped", "error", err)
 		os.Exit(1)
 	}
 }
@@ -85,7 +85,7 @@ func run() error {
 	a.Start()
 	server := &http.Server{Addr: env("LISTEN_ADDR", ":8080"), Handler: a.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 1 << 20}
 	errs := make(chan error, 1)
-	go func() { slog.Info("secretary listening", "address", server.Addr); errs <- server.ListenAndServe() }()
+	go func() { slog.Info("catbot listening", "address", server.Addr); errs <- server.ListenAndServe() }()
 	select {
 	case <-ctx.Done():
 	case err := <-errs:

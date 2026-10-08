@@ -4,7 +4,7 @@ import {
   serve,
   type ToolContext,
   type JSONObject,
-} from "@secretary/plugin-sdk";
+} from "@catbot/plugin-sdk";
 import { parseAnalysis, summaryPrompt } from "./core.js";
 import { incrementalMail, type WatchMailbox } from "./watch.js";
 

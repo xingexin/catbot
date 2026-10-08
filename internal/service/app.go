@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/plugin"
-	"agentTest/internal/secret"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/plugin"
+	"github.com/xingexin/catbot/internal/secret"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 type Scheduler interface {

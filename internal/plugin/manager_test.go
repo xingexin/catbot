@@ -1,10 +1,10 @@
 package plugin
 
 import (
-	"agentTest/internal/domain"
-	"agentTest/internal/secret"
-	"agentTest/internal/store"
 	"encoding/base64"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/secret"
+	"github.com/xingexin/catbot/internal/store"
 	"os"
 	"path/filepath"
 	"testing"

@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 // modelCall records one host invocation, not a billing estimate. Retries within

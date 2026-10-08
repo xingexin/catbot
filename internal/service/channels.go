@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"slices"
 
-	"agentTest/internal/message"
+	"github.com/xingexin/catbot/internal/message"
 )
 
 // ChannelBinding belongs to the host, not the transport implementation.

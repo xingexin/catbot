@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 func TestNotificationSelectsReadableMailChangesAndNeverHidesFailure(t *testing.T) {

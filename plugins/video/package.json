@@ -1,5 +1,5 @@
 {
-  "name": "@secretary/plugin-video",
+  "name": "@catbot/plugin-video",
   "version": "1.1.1",
   "type": "module",
   "scripts": {
@@ -7,6 +7,6 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@secretary/plugin-sdk": "1.1.0"
+    "@catbot/plugin-sdk": "1.1.0"
   }
 }

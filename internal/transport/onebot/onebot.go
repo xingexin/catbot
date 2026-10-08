@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"agentTest/internal/message"
-	"agentTest/internal/transport/httpio"
+	"github.com/xingexin/catbot/internal/message"
+	"github.com/xingexin/catbot/internal/transport/httpio"
 )
 
 type Options struct{ URL, Token string }

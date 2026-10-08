@@ -1,5 +1,5 @@
 {
-  "name": "@secretary/plugin-mail",
+  "name": "@catbot/plugin-mail",
   "version": "1.1.2",
   "type": "module",
   "scripts": {
@@ -7,7 +7,7 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@secretary/plugin-sdk": "1.1.0",
+    "@catbot/plugin-sdk": "1.1.0",
     "imapflow": "^1.0.195",
     "mailparser": "^3.7.0"
   },

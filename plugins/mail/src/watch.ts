@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { JSONObject, ToolContext } from "@secretary/plugin-sdk";
+import type { JSONObject, ToolContext } from "@catbot/plugin-sdk";
 import type { Cursor } from "./core.js";
 
 export interface WatchMailbox {

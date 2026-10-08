@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 const DefaultMaxInputBytes = 96 << 10

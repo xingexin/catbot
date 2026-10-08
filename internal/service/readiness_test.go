@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/job"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/job"
 )
 
 func TestBackgroundAgentCreatesReminderForOriginSession(t *testing.T) {

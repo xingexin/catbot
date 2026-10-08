@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/message"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/message"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func pluginNotificationRequest(a *App, token string, body map[string]any) *httptest.ResponseRecorder {

@@ -1,5 +1,5 @@
 {
-  "name": "secretary-workspace",
+  "name": "catbot-workspace",
   "private": true,
   "workspaces": [
     "runtime",
@@ -8,7 +8,7 @@
     "plugins/*"
   ],
   "scripts": {
-    "build": "npm run build -w @secretary/plugin-sdk && npm run build -w runtime && npm run build -w plugins/example && npm run build -w plugins/mail && npm run build -w plugins/video && npm run build -w web",
+    "build": "npm run build -w @catbot/plugin-sdk && npm run build -w runtime && npm run build -w plugins/example && npm run build -w plugins/mail && npm run build -w plugins/video && npm run build -w web",
     "test": "npm run test --workspaces --if-present",
     "dev:web": "npm run dev -w web",
     "dev:runtime": "npm run dev -w runtime"

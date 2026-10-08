@@ -26,12 +26,16 @@ make down
 
 Nginx 通过 Docker 内置 DNS 定期刷新 backend 地址，避免 `make` 重建后端后继续代理到旧容器 IP。配置使用变量形式的 `proxy_pass` 和 5 秒 DNS 缓存；重建期间仍会有短暂不可用，不是不中断切换。参考 [Nginx resolver](https://nginx.org/en/docs/http/ngx_http_core_module.html#resolver)。
 
-本机使用独立 Colima profile `secretary`。默认 `make` 已包含 Docker 环境启动，也可以单独准备环境：
+新安装默认使用 Compose 项目名 `catbot`；当前机器沿用已有 Colima profile `secretary` 和 Compose 项目 `secretary`，保留原数据。默认 `make` 已包含 Docker 环境启动，也可以单独准备环境：
 
 ```sh
 make docker
 make
 ```
+
+`make` 在启动 Compose 服务前初始化配置。已有 `.env` 未设置项目名时，脚本补写 `COMPOSE_PROJECT_NAME=secretary`；新生成的 `.env` 使用 `catbot`。`scripts/compose` 在初始化之前也会按同一规则解析项目名，避免检查命令误选新项目。已有自定义项目名保留；环境变量显式覆盖仍然有效。
+
+Compose 项目名决定数据卷前缀，不能把它当作界面标题随意修改。数据库名、默认人格 ID、Temporal 队列、MCP 名称等兼容标识也不因品牌改名迁移。`./scripts/compose ps`、`exec` 和 `cp` 会选择当前配置的项目，运维脚本不再固定 `secretary-backend-1` 一类容器名。
 
 新建项目 Colima 环境默认磁盘 60 GB（镜像、QQ 客户端和构建缓存需要空间）。已有 20 GB 环境不会在每次启动时强制改动；若数据库日志出现 `No space left on device`，可执行 `colima --profile secretary stop`，再 `colima --profile secretary start --disk 60` 后运行 `make`。扩容保留数据卷，不需要删除数据库或登录状态。
 
@@ -79,6 +83,8 @@ CodeBuddy 的业务 MCP 使用 `alwaysLoad: true`。SDK 默认延迟加载 MCP�
 2. 打开秘书管理端「系统与凭证」的个人 QQ 卡片，刷新连接，点击「填入当前登录 QQ」。
 3. 填写允许联系人的 QQ 号（用另一个账号给秘书发私聊），选择模型配置和人格，打开启用开关并保存。
 4. 从允许的联系人发送文本；在 Web 对话和运行记录中查看执行，在投递记录中查看 `provider=onebot`、状态与平台消息 ID。
+
+首次扫码登录成功后，可在 `.env` 设置 `NAPCAT_ACCOUNT=机器人QQ号`。容器重建时会尝试使用原数据卷中的登录状态快速登录；登录态失效时仍需扫码。留空则启动二维码登录。
 
 `ONEBOT_TOKEN` 是框架与 NapCat 之间的机器凭证，`NAPCAT_WEBUI_TOKEN` 是 NapCat 管理页面的初始密码，两者不同于秘书管理员密码。初始化脚本只补充缺失项，保留已有 MASTER_KEY、管理员密码与 SDK 配置；不打印生成的令牌。
 

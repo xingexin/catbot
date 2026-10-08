@@ -20,18 +20,18 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd cmd
 COPY internal internal
-RUN CGO_ENABLED=0 go build -trimpath -o /secretary ./cmd/secretary
+RUN CGO_ENABLED=0 go build -trimpath -o /catbot ./cmd/catbot
 
 FROM node:22-bookworm-slim AS backend
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=go-build /secretary /app/secretary
+COPY --from=go-build /catbot /app/catbot
 COPY --from=node-build /build/plugins /app/plugins
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node
 ENV DATA_DIR=/app/data PLUGIN_DIR=/app/plugins LISTEN_ADDR=:8080
 EXPOSE 8080
-CMD ["/app/secretary"]
+CMD ["/app/catbot"]
 
 FROM node:22-bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git ripgrep && rm -rf /var/lib/apt/lists/*

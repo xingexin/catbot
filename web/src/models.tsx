@@ -10,7 +10,7 @@ import {
   Tag,
 } from "antd";
 import { ApiOutlined, PlusOutlined } from "@ant-design/icons";
-import type { Row } from "./secretary";
+import type { Row } from "./catbot";
 
 export function ModelConnections({
   configs,
@@ -88,7 +88,7 @@ export function ModelConnections({
           emptyText: (
             <Empty
               description={
-                query ? "没有匹配的模型配置" : "添加第一个模型，开始使用秘书"
+                query ? "没有匹配的模型配置" : "添加第一个模型，开始使用 catbot"
               }
             />
           ),

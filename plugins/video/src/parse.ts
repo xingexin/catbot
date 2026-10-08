@@ -1,4 +1,4 @@
-import type { ToolContext } from "@secretary/plugin-sdk";
+import type { ToolContext } from "@catbot/plugin-sdk";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, open } from "node:fs/promises";

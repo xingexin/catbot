@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/job"
-	"agentTest/internal/message"
-	"agentTest/internal/store"
-	"agentTest/internal/transport/onebot"
-	"agentTest/internal/transport/qqofficial"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/job"
+	"github.com/xingexin/catbot/internal/message"
+	"github.com/xingexin/catbot/internal/store"
+	"github.com/xingexin/catbot/internal/transport/onebot"
+	"github.com/xingexin/catbot/internal/transport/qqofficial"
 )
 
 const testOneBotToken = "private-onebot-fixture"

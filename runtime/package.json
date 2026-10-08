@@ -1,5 +1,5 @@
 {
-  "name": "@secretary/runtime",
+  "name": "@catbot/runtime",
   "private": true,
   "type": "module",
   "scripts": {

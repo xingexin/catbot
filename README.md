@@ -1,4 +1,4 @@
-# 拾一 · 可扩展 AI 秘书
+# catbot · 可扩展 AI 秘书
 
 Go 对话主干 + 独立 TypeScript 插件 + 三家 Agent SDK 适配 + Temporal 后台任务。提供 Web、QQ 官方机器人和 NapCat / OneBot 个人 QQ 私聊入口。
 
@@ -16,7 +16,7 @@ make
 
 NapCat 是可选外部依赖。在 `.env` 设置 `NAPCAT_ENABLED=false` 后执行 `make`，只启动秘书主体，并停止原来运行的本地 NapCat（保留登录数据）。要连接其他 OneBot 服务，再设置 `ONEBOT_URL` 和 `ONEBOT_TOKEN`。也可临时用 `NAPCAT_ENABLED=false make` 验证。
 
-`make docker` 可单独准备 Docker 环境：已运行时直接复用；当前 Colima 环境停止时自动启动它；Mac 的 Docker Desktop 环境会自动唤起应用。当前为默认环境且安装了 Colima 时，会启动并选择项目的 `secretary` 环境。显式设置的远程地址或其他不可用环境会提示检查，不自动替换。
+`make docker` 可单独准备 Docker 环境：已运行时直接复用；当前 Colima 环境停止时自动启动它；Mac 的 Docker Desktop 环境会自动唤起应用。当前为默认环境且安装了 Colima 时，新安装会启动项目的 `catbot` 环境；检测到已有 `secretary` Colima 环境时继续复用其中的数据。显式设置的远程地址或其他不可用环境会提示检查，不自动替换。
 
 ```sh
 make docker                 # 只准备 Docker 环境
@@ -29,7 +29,7 @@ make down                   # 移除容器，保留数据卷
 make help                   # 查看命令说明
 ```
 
-打开 **http://localhost:5173**，使用本地 `.env` 中的 `ADMIN_PASSWORD` 登录。初始化脚本不会覆盖已有密钥。请备份 `MASTER_KEY`；丢失后无法解密已保存凭证。
+打开 **http://localhost:5173**，使用本地 `.env` 中的 `ADMIN_PASSWORD` 登录。新安装的 Compose 项目名为 `catbot`。从旧版本升级时，初始化脚本会在 `.env` 补写 `COMPOSE_PROJECT_NAME=secretary`，继续使用原数据卷、SDK 会话和 QQ 登录；不要为了改显示名称手动修改这个部署标识。自定义项目名也会保留。初始化脚本不会覆盖已有密钥。请备份 `MASTER_KEY`；丢失后无法解密已保存凭证。
 
 1. 打开「系统与凭证 → 模型接入」，或左侧「模型配置」。
 2. 添加模型配置，选择 API 或 SDK、模型及 Base URL；可选用已有凭证，或在配置对话框内添加 Key 并自动选用。
@@ -40,7 +40,7 @@ make help                   # 查看命令说明
 
 完整设置、通知失败处理和实际账号验收见 [日常使用指南](docs/daily-use.md)。
 
-**CodeBuddy iOA + `glm-5.3` 已完成真实流式对话、原生会话续接和示例插件调用联调（2026-09-30）。** Claude、Codex、API 直连端点、真实邮箱和 QQ 仍需凭证联调。以 `[本地验收]` 或 `[浏览器验收]` 命名的配置连接确定性测试端点，不能作为真实模型能力或效果证明。详见 [验收报告](docs/acceptance.md)。
+**CodeBuddy iOA + `glm-5.3` 已完成真实流式对话、原生会话续接和示例插件调用联调（2026-09-30），OneBot QQ 群聊已完成真实收发、上下文和定时通知联调（2026-10-07）。** Claude、Codex、API 直连端点、真实邮箱与官方 QQ 仍需凭证联调。以 `[本地验收]` 或 `[浏览器验收]` 命名的配置连接确定性测试端点，不能作为真实模型能力或效果证明。详见 [验收报告](docs/acceptance.md)。
 
 ## 接入矩阵
 
@@ -68,10 +68,12 @@ OpenAI 兼容地址一般以 `/v1` 结束；框架追加 `/chat/completions` 或
 
 SDK 使用独立 HOME、工作目录和原生会话数据。SDK 中断后停止自动续用不确定会话，后续请求从公共历史建立上下文。普通成功会话支持各 SDK 自己的会话恢复。SDK 内置文件、Shell 等工具被限制，业务能力经核心 MCP 网关统一授权。
 
+仓库：[xingexin/catbot](https://github.com/xingexin/catbot)。管理端使用黑白为主、浅粉点缀的配色；显示名称与底层兼容标识分开。
+
 ## 项目结构
 
 ```text
-cmd/secretary/        Go 服务入口，HTTP + Temporal Worker
+cmd/catbot/        Go 服务入口，HTTP + Temporal Worker
 internal/agent/      API 协议、工具循环、SDK 桥接
 internal/service/    对话、人格、管理 API、QQ、插件宿主
 internal/message/    独立收发契约：Sender、InboundMessage、StatusChecker
@@ -102,7 +104,7 @@ npm run build
 在 Go 进程环境设置 `DATABASE_URL`、`MASTER_KEY`、`ADMIN_PASSWORD`、`RUNTIME_TOKEN`。数据库端口为 `5442`，Temporal 为 `7233`。随后分别运行：
 
 ```sh
-go run ./cmd/secretary
+go run ./cmd/catbot
 npm run dev:runtime
 npm run dev:web
 ```

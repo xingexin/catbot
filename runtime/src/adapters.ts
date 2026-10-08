@@ -192,7 +192,7 @@ export async function secretaryToolPermission(
     ? { behavior: "allow" as const, updatedInput: args }
     : {
         behavior: "deny" as const,
-        message: "Only configured secretary plugin tools are available.",
+        message: "Only configured catbot plugin tools are available.",
       };
 }
 
@@ -219,7 +219,7 @@ export function commonOptions(
         type: "http" as const,
         url: input.gatewayUrl,
         headers: { Authorization: "Bearer " + input.gatewayToken },
-        // CodeBuddy defers MCP tools by default. The secretary disables built-in
+        // CodeBuddy defers MCP tools by default. catbot disables built-in
         // ToolSearch, so business tools must be loaded before the first prompt.
         ...(input.config.provider === "codebuddy" ? { alwaysLoad: true } : {}),
       },

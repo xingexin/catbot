@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/plugin"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/plugin"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 // Mail setup composes the same plugin and scheduler used by conversations.

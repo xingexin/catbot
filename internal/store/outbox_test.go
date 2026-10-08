@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 // A Store wrapper that exposes only the original Store contract.

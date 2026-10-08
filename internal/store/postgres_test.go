@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 func TestPostgresPersistenceAndLockContention(t *testing.T) {

@@ -68,7 +68,7 @@ SDK 整轮请求是一个 Activity 边界，不承诺恢复其内部每次模型
 
 适配器将平台事件转换成 `InboundMessage`，统一进入 `App.HandleIncoming`。框架负责绑定授权、去重、会话和执行队列。`App.SendMessage` 负责发送意图、稳定操作 ID 和结果记录，即时回复与 Temporal 通知共用该入口。官方回复引用从旧有收件记录转换为通用 `ReplyReference`，由适配器映射到平台字段。
 
-`cmd/secretary/channels.go` 是实现选择点。注册项把路由键、发送器、可选状态检查、接收 HTTP handler、绑定策略与管理页信息组合起来；注册在 Worker 和 HTTP 启动前完成。更换实现保留 `official/onebot` 路由键即可复用已有会话与任务，不做运行时热替换。详细示例见 [消息适配器](message-adapters.md)。
+`cmd/catbot/channels.go` 是实现选择点。注册项把路由键、发送器、可选状态检查、接收 HTTP handler、绑定策略与管理页信息组合起来；注册在 Worker 和 HTTP 启动前完成。更换实现保留 `official/onebot` 路由键即可复用已有会话与任务，不做运行时热替换。详细示例见 [消息适配器](message-adapters.md)。
 
 去重键包括路由、登录账号、联系人和平台消息 ID。会话保存 `channelProvider / channelAccount / recipient`，发送时按会话选择注册的 Sender，未知路由直接失败，不回退。升级前缺少 provider 的会话仍按官方渠道发送；新的官方会话按 AppID 隔离。框架在发送前检查联系人绑定；OneBot 适配器另行核对当前登录账号，账号变化时阻止旧会话通知。
 

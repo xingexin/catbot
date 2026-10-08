@@ -1,4 +1,4 @@
-// Package message defines the secretary's transport-independent text contract.
+// Package message defines catbot's transport-independent text contract.
 package message
 
 import (

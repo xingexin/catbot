@@ -1,4 +1,4 @@
-module agentTest
+module github.com/xingexin/catbot
 
 go 1.26.0
 

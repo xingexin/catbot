@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 func discard(string, map[string]any) error { return nil }

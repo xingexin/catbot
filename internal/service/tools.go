@@ -10,9 +10,9 @@ import (
 	"slices"
 	"strings"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/plugin"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/plugin"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func objectSchema(properties map[string]any, required ...string) map[string]any {

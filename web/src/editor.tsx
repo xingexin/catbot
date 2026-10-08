@@ -15,7 +15,7 @@ import {
   type FormInstance,
 } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
-import type { Row } from "./secretary";
+import type { Row } from "./catbot";
 const { TextArea } = Input;
 function SelectField({
   name,

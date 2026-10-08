@@ -1,4 +1,4 @@
-import { serve } from "@secretary/plugin-sdk";
+import { serve } from "@catbot/plugin-sdk";
 serve({
   echo: async (args) => ({
     text: String(args.text),

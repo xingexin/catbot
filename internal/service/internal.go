@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 type pluginContextKey struct{}

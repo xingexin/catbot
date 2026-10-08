@@ -1,13 +1,13 @@
 package secret
 
 import (
-	"agentTest/internal/store"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 type Vault struct {

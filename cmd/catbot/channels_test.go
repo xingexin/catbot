@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/service"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/service"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func TestLocalLoginOnlyForManagedNapCat(t *testing.T) {

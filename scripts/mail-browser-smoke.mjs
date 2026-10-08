@@ -263,7 +263,7 @@ try {
   await page.goto(base);
   await page.getByLabel("管理员密码").fill(env.ADMIN_PASSWORD);
   await saveAndWait(
-    page.getByRole("button", { name: /登\s*录/ }),
+    page.getByRole("button", { name: "进入工作台" }),
     "/api/login",
   );
   await page.getByRole("menuitem", { name: "邮箱监听" }).click();

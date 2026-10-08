@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/message"
+	"github.com/xingexin/catbot/internal/message"
 )
 
 func TestGroupMentionsAreStructuredAndAddressedToBot(t *testing.T) {

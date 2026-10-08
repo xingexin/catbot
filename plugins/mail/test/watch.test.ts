@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { JSONObject, ToolContext } from "@secretary/plugin-sdk";
+import type { JSONObject, ToolContext } from "@catbot/plugin-sdk";
 import {
   incrementalMail,
   notificationText,

@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func TestPersonaNativeRecoveryAfterRestart(t *testing.T) {

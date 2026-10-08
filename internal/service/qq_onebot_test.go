@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func setupOneBot(t *testing.T) *App {

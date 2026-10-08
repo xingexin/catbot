@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/job"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/job"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func (a *App) Step(ctx context.Context, in job.StepInput) (any, error) {

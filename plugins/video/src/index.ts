@@ -1,4 +1,4 @@
-import { serve } from "@secretary/plugin-sdk";
+import { serve } from "@catbot/plugin-sdk";
 import { parseVideo } from "./parse.js";
 
 serve({

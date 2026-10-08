@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"agentTest/internal/domain"
 	"fmt"
+	"github.com/xingexin/catbot/internal/domain"
 	"net/http"
 	"net/http/httptest"
 	"strings"

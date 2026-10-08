@@ -9,7 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 func TestToolObservationIsBoundedJSON(t *testing.T) {

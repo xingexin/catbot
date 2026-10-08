@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func newerBundle(next, previous string) bool {

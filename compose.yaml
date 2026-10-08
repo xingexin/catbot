@@ -1,4 +1,4 @@
-name: secretary
+name: ${COMPOSE_PROJECT_NAME:-catbot}
 services:
   postgres:
     image: postgres:17.6
@@ -108,11 +108,12 @@ services:
   napcat:
     profiles: [napcat]
     image: mlikiowa/napcat-docker:v4.18.28
-    hostname: secretary-qq
+    hostname: ${COMPOSE_PROJECT_NAME:-catbot}-qq
     environment:
       NAPCAT_UID: "1000"
       NAPCAT_GID: "1000"
       WEBUI_TOKEN: ${NAPCAT_WEBUI_TOKEN:-}
+      ACCOUNT: ${NAPCAT_ACCOUNT:-}
     ports: ["127.0.0.1:${NAPCAT_WEB_PORT:-6099}:6099"]
     volumes:
       - napcat-qq:/app/.config/QQ

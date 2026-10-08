@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/secretary-video-test.XXXXXX")
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/catbot-video-test.XXXXXX")
 bundle="$scratch/test.cjs"
 trap 'rm -f "$bundle"; rmdir "$scratch"' EXIT HUP INT TERM
 ./node_modules/.bin/esbuild plugins/video/test/ffmpeg.test.ts --bundle --platform=node --format=cjs --outfile="$bundle"

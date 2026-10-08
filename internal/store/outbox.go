@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 type pendingReplyReader interface {

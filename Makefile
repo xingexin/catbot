@@ -19,6 +19,7 @@ up: check
 start: up
 
 docker:
+	@command -v python3 >/dev/null 2>&1 || { printf '缺少 Python 3，无法读取部署配置。\n' >&2; exit 1; }
 	@sh scripts/start-docker.sh
 
 check: docker
@@ -56,9 +57,9 @@ help:
 build:
 	npm ci
 	npm run build
-	go build -o bin/secretary ./cmd/secretary
+	go build -o bin/catbot ./cmd/catbot
 test:
 	go test -race ./...
 	npm test
 dev:
-	go run ./cmd/secretary
+	go run ./cmd/catbot

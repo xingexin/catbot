@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/job"
-	"agentTest/internal/message"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/job"
+	"github.com/xingexin/catbot/internal/message"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func qqGroupTestApp(t *testing.T) *App {

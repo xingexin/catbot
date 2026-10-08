@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 // Hiding optional methods verifies compatibility with existing Store wrappers.

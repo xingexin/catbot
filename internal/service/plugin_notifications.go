@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 func (a *App) pluginNotify(w http.ResponseWriter, r *http.Request) {

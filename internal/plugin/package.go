@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 // freeze retains self-contained plugin bundles until an administrator removes

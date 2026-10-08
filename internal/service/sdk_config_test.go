@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 func savedConfig(t *testing.T, a *App, cookie *http.Cookie, id string) domain.Config {

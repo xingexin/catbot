@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 var groupTestToolNames = []string{

@@ -10,7 +10,7 @@ def main():
     values = settings()
     env = dict(os.environ)
     # Leave other interpolation to Compose; only supply resolved dependency values.
-    for key in ("NAPCAT_ENABLED", "ONEBOT_URL"):
+    for key in ("NAPCAT_ENABLED", "ONEBOT_URL", "COMPOSE_PROJECT_NAME"):
         env[key] = values[key]
     probe = subprocess.run(["docker", "compose", "version"], capture_output=True)
     command = ["docker", "compose"] if probe.returncode == 0 else ["docker-compose"]

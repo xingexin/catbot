@@ -13,3 +13,5 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 __pycache__/
+# Optional host-specific Docker networking and other local deployment overrides.
+compose.override.yaml

@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/job"
-	"agentTest/internal/message"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/job"
+	"github.com/xingexin/catbot/internal/message"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 type notification struct {

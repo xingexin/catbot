@@ -16,7 +16,7 @@ import {
   Tag,
 } from "antd";
 import { api } from "./api";
-import type { Row } from "./secretary";
+import type { Row } from "./catbot";
 
 const permissionOptions = [
   { label: "读取邮件", value: "mail.read" },
@@ -412,7 +412,7 @@ export function MailSettings({
               extra={
                 sessions.length
                   ? "选择 QQ 会话可收到私聊提醒；Web 会话可在管理端查看通知。"
-                  : "请先创建 Web 对话，或用授权的 QQ 联系秘书建立会话。"
+                  : "请先创建 Web 对话，或用授权的 QQ 联系 catbot 建立会话。"
               }
             >
               <Select

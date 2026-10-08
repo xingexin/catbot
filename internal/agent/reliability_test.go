@@ -12,7 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"agentTest/internal/domain"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 func TestDirectToolResultsAreBoundedForEveryProtocol(t *testing.T) {

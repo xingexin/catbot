@@ -31,8 +31,10 @@ case "$docker_context" in
     ;;
   default)
     if [ -z "${DOCKER_CONTEXT:-}" ] && command -v colima >/dev/null 2>&1; then
-      printf '正在启动项目的 Colima 环境：secretary\n'
-      colima --profile secretary start --cpu 2 --memory 4 --disk 60
+      script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+      colima_profile=$(python3 -c 'import sys; sys.path.insert(0,sys.argv[1]); from deployment import colima_profile; print(colima_profile())' "$script_dir")
+      printf '正在启动项目的 Colima 环境：%s\n' "$colima_profile"
+      colima --profile "$colima_profile" start --cpu 2 --memory 4 --disk 60
     elif [ "$(uname -s)" = Darwin ] && { [ -d /Applications/Docker.app ] || [ -d "$HOME/Applications/Docker.app" ]; }; then
       printf '正在启动 Docker Desktop…\n'
       open -a Docker

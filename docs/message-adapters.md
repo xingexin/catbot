@@ -22,7 +22,7 @@
 | `internal/service/channels.go` | 启动注册、绑定策略、状态组合 |
 | `internal/transport/onebot` | OneBot 11 HTTP 协议，不依赖 NapCat 专属接口 |
 | `internal/transport/qqofficial` | 官方 QQ API、Ed25519 验签，注入加密 token 缓存 |
-| `cmd/secretary/channels.go` | 创建依赖、固定逻辑路由键、绑定接收回调 |
+| `cmd/catbot/channels.go` | 创建依赖、固定逻辑路由键、绑定接收回调 |
 
 `OutboundMessage` 包含账号、联系人、可选房间 ID、文本、操作 ID 与可选回复引用。`RoomID` 为空时向 `Peer` 私聊；非空时发往该群，`Peer` 是需要 @ 的发言人。它不包含 `Session`、OneBot action 或 QQ 请求体。发送器不需要实现管理 API；`StatusChecker` 和接收 HTTP handler 分别注入。暂不支持群发送的实现应明确拒绝非空 `RoomID`，不能降级为私聊。
 
@@ -59,7 +59,7 @@ package myqq
 
 import (
     "context"
-    "agentTest/internal/message"
+    "github.com/xingexin/catbot/internal/message"
 )
 
 type Client interface {
@@ -77,7 +77,7 @@ func (a *Adapter) Send(ctx context.Context, in message.OutboundMessage) (message
 var _ message.Sender = (*Adapter)(nil)
 ```
 
-然后在 `cmd/secretary/channels.go` **替换**原来 `onebot` 的创建及注册，而不是重复注册：
+然后在 `cmd/catbot/channels.go` **替换**原来 `onebot` 的创建及注册，而不是重复注册：
 
 ```go
 sender := myqq.New(client) // client 由启动入口创建

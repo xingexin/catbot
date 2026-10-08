@@ -36,12 +36,15 @@ import {
   LogoutOutlined,
   SettingOutlined,
   KeyOutlined,
+  BellOutlined,
+  ArrowRightOutlined,
 } from "@ant-design/icons";
 import { api, downloadJSON, parseJSON, pretty } from "./api";
 import { Editor } from "./editor";
 import { QQConnections } from "./qq";
 import { ModelConnections } from "./models";
 import { MailSettings } from "./mail";
+import { CatMark, Brand } from "./brand";
 const { TextArea } = Input;
 export type Row = Record<string, any>;
 const pages = [
@@ -56,12 +59,12 @@ const pages = [
   { key: "settings", icon: <SettingOutlined />, label: "系统与凭证" },
 ];
 const descriptions: Record<string, string> = {
-  chat: "把事情交给秘书，过程与结果都有迹可循。",
+  chat: "把想法说出来，剩下的交给 catbot。",
   tasks: "一次提醒、周期安排，或按步骤执行的后台工作。",
   mail: "连接邮箱，定期检查新邮件，有变化时通知指定会话。",
   artifacts: "上传文件，查看插件保存的摘要和提取事项。",
   personas: "设定表达方式和行为偏好，按会话选择。",
-  plugins: "独立安装业务能力，让秘书逐步成长。",
+  plugins: "按需接入，让 catbot 多会一点。",
   configs: "选择 Agent SDK，或通过 Key 与 Base URL 直连模型。",
   runs: "检查模型调用、工具结果与后台任务状态。",
   settings: "接入模型与 Agent SDK，管理 QQ 连接和服务凭证。",
@@ -85,7 +88,7 @@ function Status({ value }: { value: string }) {
 function JSONView({ value }: { value: unknown }) {
   return <pre className="json">{pretty(value)}</pre>;
 }
-export function Secretary() {
+export function Catbot() {
   const { message } = App.useApp();
   const [logged, setLogged] = useState<boolean | null>(null),
     [page, setPage] = useState("chat"),
@@ -104,6 +107,29 @@ export function Secretary() {
   const end = useRef<HTMLDivElement>(null);
   const rows = (name: string) => data[name] ?? [];
   const session = rows("sessions").find((s) => s.id === sessionId);
+  const selectedPersona = rows("personas").find(
+    (p) => p.id === session?.personaId,
+  );
+  const selectedConfig = rows("configs").find(
+    (c) => c.id === session?.configId,
+  );
+  const relatedTasks = session
+    ? rows("tasks")
+        .filter(
+          (t) =>
+            t.sessionId === session.id &&
+            t.status !== "cancelled" &&
+            t.status !== "completed",
+        )
+        .slice(0, 4)
+    : [];
+  function selectSession(id: string) {
+    setSessionId(id);
+    setRun(null);
+    setStream("");
+    setEvents([]);
+    source.current?.close();
+  }
   const active = run?.status === "running" || run?.status === "queued";
   const suggestedConfigId =
     session?.configId ??
@@ -384,18 +410,35 @@ export function Secretary() {
     return (
       <div className="login">
         <div className="login-copy">
-          <span className="eyebrow">YOUR PERSONAL SECRETARY</span>
-          <h1>
-            拾起琐事，
-            <br />
-            留一点时间给自己。
-          </h1>
-          <p>对话、人格、插件和日程，在一个地方安顿好。</p>
-          <div className="seal">拾一</div>
+          <Brand />
+          <div className="login-story">
+            <span className="eyebrow">YOUR PERSONAL AI WORKSPACE</span>
+            <h1>
+              你的日常，
+              <br />
+              <span>有只猫在打理。</span>
+            </h1>
+            <p>
+              聊聊想法，安排提醒，处理琐事。
+              <br />
+              一个有性格，也能做事的 AI 搭档。
+            </p>
+            <div className="login-orbit" aria-hidden="true">
+              <span className="orbit-ring" />
+              <span className="orbit-ring" />
+              <div className="login-cat">
+                <CatMark />
+              </div>
+            </div>
+          </div>
+          <div className="login-caption">
+            A LITTLE PERSONALITY. A LOT LESS BUSYWORK.
+          </div>
         </div>
         <Card className="login-card">
-          <div className="eyebrow">欢迎回来</div>
-          <h2>进入秘书工作台</h2>
+          <div className="eyebrow">CATBOT · PERSONAL WORKSPACE</div>
+          <h2>欢迎回来</h2>
+          <p className="login-intro">进入 catbot，接着把日子安排好。</p>
           <Form
             layout="vertical"
             onFinish={async (v) => {
@@ -412,13 +455,19 @@ export function Secretary() {
               label="管理员密码"
               rules={[{ required: true }]}
             >
-              <Input.Password size="large" autoComplete="current-password" />
+              <Input.Password
+                size="large"
+                placeholder="输入管理员密码"
+                autoComplete="current-password"
+              />
             </Form.Item>
             <Button type="primary" htmlType="submit" block size="large">
-              登录
+              进入工作台 <ArrowRightOutlined />
             </Button>
           </Form>
-          <p className="muted">使用部署时设置的 ADMIN_PASSWORD</p>
+          <p className="muted login-note">
+            使用你的管理员密码，进入个人工作空间。
+          </p>
         </Card>
       </div>
     );
@@ -441,8 +490,29 @@ export function Secretary() {
           >
             新对话
           </Button>
+          <div className="mobile-session-select">
+            <Select
+              aria-label="选择会话"
+              placeholder="选择会话"
+              value={sessionId || undefined}
+              onChange={selectSession}
+              showSearch
+              optionFilterProp="label"
+              options={rows("sessions")
+                .filter((s) => s.channel !== "task")
+                .map((s) => ({
+                  value: s.id,
+                  label:
+                    s.title ||
+                    (s.channelRoom ? `群 ${s.channelRoom}` : "未命名会话"),
+                }))}
+            />
+          </div>
           <div className="list-heading">
-            最近会话 <span>{rows("sessions").length}</span>
+            最近会话{" "}
+            <span>
+              {rows("sessions").filter((s) => s.channel !== "task").length}
+            </span>
           </div>
           {rows("sessions")
             .filter((s) => s.channel !== "task")
@@ -452,13 +522,9 @@ export function Secretary() {
                   "session-item " + (s.id === sessionId ? "selected" : "")
                 }
                 key={s.id}
-                onClick={() => {
-                  setSessionId(s.id);
-                  setRun(null);
-                  setStream("");
-                  setEvents([]);
-                  source.current?.close();
-                }}
+                aria-current={s.id === sessionId ? "true" : undefined}
+                title={s.title || "未命名会话"}
+                onClick={() => selectSession(s.id)}
               >
                 <MessageOutlined />
                 <span>
@@ -483,7 +549,9 @@ export function Secretary() {
         <section className="chat-panel">
           {!session ? (
             <div className="chat-empty">
-              <div className="mark">拾</div>
+              <div className="mark">
+                <CatMark />
+              </div>
               <h2>今天有什么需要安排？</h2>
               <p>选择模型配置，开启第一段对话。</p>
               <div className="prompt-cards">
@@ -522,7 +590,7 @@ export function Secretary() {
                 <div>
                   <strong>{session.title || "未命名会话"}</strong>
                   {session.channelRoom && (
-                    <Tag color="blue">
+                    <Tag className="soft-tag">
                       群 {session.channelRoom} · 发言人 {session.recipient}
                     </Tag>
                   )}
@@ -546,7 +614,7 @@ export function Secretary() {
                 {(session.messages ?? []).map((m: Row, i: number) => (
                   <div className={"bubble-row " + m.role} key={i}>
                     <div className="avatar">
-                      {m.role === "user" ? "我" : "拾"}
+                      {m.role === "user" ? "我" : <CatMark />}
                     </div>
                     <div className="bubble">{m.content}</div>
                   </div>
@@ -558,7 +626,9 @@ export function Secretary() {
                       <div className="bubble">{run.prompt}</div>
                     </div>
                     <div className="bubble-row assistant">
-                      <div className="avatar">拾</div>
+                      <div className="avatar">
+                        <CatMark />
+                      </div>
                       <div className="bubble">
                         {stream || <span className="muted">正在处理…</span>}
                       </div>
@@ -597,7 +667,7 @@ export function Secretary() {
                 (n) => n.sessionId === session.id && n.taskId,
               ) && (
                 <div className="tool-strip">
-                  <Tag color="blue">任务通知</Tag>
+                  <Tag className="soft-tag">任务通知</Tag>
                   <span>
                     {rows("notifications")
                       .filter((n) => n.sessionId === session.id && n.taskId)
@@ -637,7 +707,11 @@ export function Secretary() {
                   }}
                 />
                 <div>
-                  <span className="muted">工具由人格与服务端权限共同控制</span>
+                  <span className="compose-context">
+                    <UserOutlined /> {selectedPersona?.name || "未选择人格"}
+                    <span className="compose-divider">/</span>
+                    <ApiOutlined /> {selectedConfig?.model || "未选择模型"}
+                  </span>
                   {active ? (
                     <Button
                       onClick={() =>
@@ -664,6 +738,89 @@ export function Secretary() {
             </>
           )}
         </section>
+        {session && (
+          <aside className="chat-context" aria-label="当前对话信息">
+            <h3>当前人格</h3>
+            <div className="context-persona">
+              <div className="context-persona-head">
+                <span className="avatar">
+                  <CatMark />
+                </span>
+                <div>
+                  <strong>{selectedPersona?.name || "未选择人格"}</strong>
+                  <small>
+                    {selectedPersona
+                      ? `版本 ${selectedPersona.version}`
+                      : "在会话设置中选择"}
+                  </small>
+                </div>
+              </div>
+              <p>
+                {selectedPersona?.description ||
+                  "在会话设置中选择人格，定义搭档的表达方式与偏好。"}
+              </p>
+              {selectedPersona && (
+                <span className="context-detail">
+                  {selectedPersona.tools == null
+                    ? "使用全部已授权工具"
+                    : `可用工具 ${selectedPersona.tools.length} 个`}
+                </span>
+              )}
+            </div>
+            <h3>这段对话的任务</h3>
+            {relatedTasks.length ? (
+              relatedTasks.map((task) => (
+                <button
+                  key={task.id}
+                  className="context-task"
+                  onClick={() => setPage("tasks")}
+                >
+                  <span>
+                    <BellOutlined />
+                    <strong>{task.name || "未命名任务"}</strong>
+                  </span>
+                  <small>
+                    {task.kind === "once" && task.runAt
+                      ? new Date(task.runAt).toLocaleString("zh-CN", {
+                          month: "numeric",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : task.kind === "recurring"
+                        ? "周期任务"
+                        : "手动执行"}
+                    {task.paused ? " · 已暂停" : ""}
+                  </small>
+                </button>
+              ))
+            ) : (
+              <p className="context-empty">
+                暂时没有待办任务。
+                <br />
+                需要提醒时，告诉 catbot 就好。
+              </p>
+            )}
+            <Button
+              type="link"
+              className="context-link"
+              onClick={() => setPage("tasks")}
+            >
+              查看全部任务 <ArrowRightOutlined />
+            </Button>
+            <div className="context-model">
+              <ApiOutlined />
+              <span>
+                {selectedConfig?.model || "未选择模型"}
+                <small>
+                  {selectedConfig?.kind === "sdk"
+                    ? "Agent SDK"
+                    : "模型 API 直连"}
+                </small>
+              </span>
+            </div>
+          </aside>
+        )}
       </div>
     );
   else if (page === "configs")
@@ -767,7 +924,7 @@ export function Secretary() {
               }
               extra={
                 p.default ? (
-                  <Tag color="green">默认</Tag>
+                  <Tag className="soft-tag">默认</Tag>
                 ) : (
                   <Tag>v{p.version}</Tag>
                 )
@@ -1382,13 +1539,10 @@ export function Secretary() {
         breakpoint="lg"
         collapsedWidth={64}
       >
-        <div className="brand">
-          <span>拾</span>
-          <div>
-            拾一<small>AI SECRETARY</small>
-          </div>
-        </div>
+        <Brand />
+        <div className="nav-label">WORKSPACE</div>
         <Menu
+          mode="inline"
           selectedKeys={[page]}
           items={pages}
           onClick={({ key }) => setPage(key)}
@@ -1413,11 +1567,12 @@ export function Secretary() {
       <Layout>
         <header className="topbar">
           <span>
-            工作空间 <span className="slash">/</span>{" "}
+            <span className="breadcrumb-brand">catbot</span>{" "}
+            <span className="slash">/</span>{" "}
             {pages.find((p) => p.key === page)?.label}
           </span>
           <Space>
-            <Tag bordered={false}>PERSONAL</Tag>
+            <span className="workspace-label">个人工作空间</span>
             <Button
               type="text"
               icon={<ReloadOutlined spin={busy} />}

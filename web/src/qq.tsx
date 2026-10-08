@@ -94,8 +94,8 @@ export function QQConnections({
         <p>接入实现：{personal?.implementation ?? "读取中"}</p>
         <p>
           {data?.napcatWebUrl
-            ? "先打开 NapCat 扫码登录，再配置允许使用秘书的联系人或群。"
-            : "在你配置的消息接入服务中登录 QQ，再配置允许使用秘书的联系人或群。"}
+            ? "先打开 NapCat 扫码登录，再配置允许使用 catbot 的联系人或群。"
+            : "在你配置的消息接入服务中登录 QQ，再配置允许使用 catbot 的联系人或群。"}
         </p>
         <Space wrap style={{ marginBottom: 16 }}>
           {data?.napcatWebUrl && (
@@ -147,7 +147,7 @@ export function QQConnections({
             <Switch />
           </Form.Item>
           <Form.Item name="selfId" label="接入服务登录的 QQ 号">
-            <Input placeholder="作为秘书使用的 QQ 号" />
+            <Input placeholder="作为 catbot 使用的 QQ 号" />
           </Form.Item>
           <Form.Item
             name="allowedUsers"

@@ -149,7 +149,7 @@ try {
   await page.getByLabel("管理员密码").fill(env.ADMIN_PASSWORD);
   const [login] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith("/api/login")),
-    page.getByRole("button", { name: /登\s*录/ }).click(),
+    page.getByRole("button", { name: "进入工作台" }).click(),
   ]);
   assert.equal(login.status(), 200);
   loggedIn = true;

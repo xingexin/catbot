@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"agentTest/internal/agent"
-	"agentTest/internal/domain"
-	"agentTest/internal/message"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/agent"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/message"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 func outboxApp(t *testing.T, send senderFunc) *App {

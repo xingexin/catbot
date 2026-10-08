@@ -1,8 +1,8 @@
 package secret
 
 import (
-	"agentTest/internal/store"
 	"encoding/base64"
+	"github.com/xingexin/catbot/internal/store"
 	"strings"
 	"testing"
 )

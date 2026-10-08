@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/secret"
-	"agentTest/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/secret"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,47}$`)

@@ -1,11 +1,11 @@
 {
-  "name": "@secretary/plugin-example",
+  "name": "@catbot/plugin-example",
   "version": "1.0.2",
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs"
   },
   "dependencies": {
-    "@secretary/plugin-sdk": "1.1.0"
+    "@catbot/plugin-sdk": "1.1.0"
   }
 }

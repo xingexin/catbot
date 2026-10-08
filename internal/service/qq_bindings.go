@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"agentTest/internal/domain"
-	"agentTest/internal/store"
+	"github.com/xingexin/catbot/internal/domain"
+	"github.com/xingexin/catbot/internal/store"
 )
 
 type oneBotBinding struct {

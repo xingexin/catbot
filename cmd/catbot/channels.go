@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"agentTest/internal/service"
-	"agentTest/internal/transport/onebot"
-	"agentTest/internal/transport/qqofficial"
+	"github.com/xingexin/catbot/internal/service"
+	"github.com/xingexin/catbot/internal/transport/onebot"
+	"github.com/xingexin/catbot/internal/transport/qqofficial"
 )
 
 // This is the composition point for message transports. Keep routing keys stable

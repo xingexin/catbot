@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import assert from "node:assert/strict";
+import { composeContainer, dockerEnvironment } from "./deployment.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = Object.fromEntries(
   (await readFile(resolve(root, ".env"), "utf8"))
@@ -53,7 +54,7 @@ const report = { protocols: [], browser: [], video: null, errors };
 try {
   await page.goto(base);
   await page.getByLabel("管理员密码").fill(env.ADMIN_PASSWORD);
-  await page.getByRole("button", { name: /登\s*录/ }).click();
+  await page.getByRole("button", { name: "进入工作台" }).click();
   await page.getByRole("heading", { name: "对话", exact: true }).waitFor();
   report.browser.push("login");
   for (const directory of ["example", "mail", "video"])
@@ -197,16 +198,12 @@ try {
     await new Promise((r) => setTimeout(r, 300));
   }
   // Real FFmpeg processing with deterministic ASR/vision fixture responses.
-  const docker = [
-    "--context",
-    process.env.TEST_DOCKER_CONTEXT ?? "colima-secretary",
-  ];
+  const backendContainer = composeContainer("backend");
   execFileSync(
     "docker",
     [
-      ...docker,
       "exec",
-      "secretary-backend-1",
+      backendContainer,
       "ffmpeg",
       "-nostdin",
       "-v",
@@ -227,17 +224,16 @@ try {
       "-y",
       "/tmp/acceptance.mp4",
     ],
-    { stdio: "pipe" },
+    { stdio: "pipe", env: dockerEnvironment },
   );
   execFileSync(
     "docker",
     [
-      ...docker,
       "cp",
-      "secretary-backend-1:/tmp/acceptance.mp4",
+      backendContainer + ":/tmp/acceptance.mp4",
       resolve(out, "fixture.mp4"),
     ],
-    { stdio: "pipe" },
+    { stdio: "pipe", env: dockerEnvironment },
   );
   const upload = await context.request.post(base + "/api/files", {
     multipart: {

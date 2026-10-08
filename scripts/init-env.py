@@ -37,6 +37,10 @@ missing = {key: secrets.token_hex(32) for key in
            ("ONEBOT_TOKEN", "NAPCAT_WEBUI_TOKEN") if key not in values}
 missing.update({key: value for key, value in
                 {"NAPCAT_ENABLED": "true", "ONEBOT_URL": ""}.items() if key not in values})
+# Resolve before appending: an old .env without a project name must keep its
+# original volumes. Explicit environment overrides are intentionally not saved.
+if not values.get("COMPOSE_PROJECT_NAME", "").strip("'\""):
+    missing["COMPOSE_PROJECT_NAME"] = settings(root, {})["COMPOSE_PROJECT_NAME"]
 if missing:
     with path.open("a") as out:
         if not text.endswith("\n"):
@@ -44,11 +48,11 @@ if missing:
         for key, value in missing.items():
             out.write(f"{key}={value}\n")
     values.update(missing)
-    print("Added missing optional dependency settings.")
+    print("Added missing deployment settings; existing data identity preserved.")
 
 values = settings(root)
 if values["NAPCAT_ENABLED"] == "false":
-    print("Local NapCat disabled; starting secretary services only.")
+    print("Local NapCat disabled; starting catbot services only.")
     raise SystemExit(0)
 
 token = values["ONEBOT_TOKEN"]
@@ -73,12 +77,12 @@ write_once("napcat.json", {"fileLog": True, "consoleLog": True, "fileLogLevel": 
 write_once("onebot11.json", {
     "network": {
         "httpServers": [{
-            "name": "secretary-api", "enable": True, "host": "0.0.0.0", "port": 3000,
+            "name": "catbot-api", "enable": True, "host": "0.0.0.0", "port": 3000,
             "enableCors": False, "enableWebsocket": False,
             "messagePostFormat": "array", "token": token, "debug": False,
         }],
         "httpClients": [{
-            "name": "secretary-events", "enable": True,
+            "name": "catbot-events", "enable": True,
             "url": "http://backend:8080/qq/onebot/events",
             "messagePostFormat": "array", "reportSelfMessage": False,
             "token": token, "debug": False,

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"agentTest/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xingexin/catbot/internal/domain"
 )
 
 var ErrNotFound = errors.New("record not found")
