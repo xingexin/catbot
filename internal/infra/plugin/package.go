@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -36,7 +37,7 @@ func (p *Packages) Read(dir string) (string, domainplugin.Manifest, error) {
 		return "", domainplugin.Manifest{}, err
 	}
 	rel, err := filepath.Rel(root, full)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil || !filepath.IsLocal(rel) {
 		return "", domainplugin.Manifest{}, errors.New("plugin must be inside PLUGIN_DIR")
 	}
 	b, err := os.ReadFile(filepath.Join(full, "plugin.json"))
@@ -50,21 +51,72 @@ func (p *Packages) Read(dir string) (string, domainplugin.Manifest, error) {
 	if err := domainplugin.ValidateManifestIdentity(manifest); err != nil {
 		return "", manifest, err
 	}
-	entry, err := filepath.EvalSymlinks(filepath.Join(full, manifest.Entry))
-	if err != nil {
-		return "", domainplugin.Manifest{}, err
-	}
-	entryRel, _ := filepath.Rel(full, entry)
-	if strings.HasPrefix(entryRel, "..") {
-		return "", domainplugin.Manifest{}, errors.New("entry must be inside plugin package")
+	if _, err := packageEntry(full, manifest.Entry); err != nil {
+		return "", manifest, err
 	}
 	return full, manifest, nil
+}
+
+// packageEntry verifies that the entry will survive freezing and cannot resolve
+// outside the package. Symlink components are rejected just like bundle files.
+func packageEntry(dir, entry string) (string, error) {
+	if !filepath.IsLocal(entry) || filepath.Clean(entry) == "." {
+		return "", errors.New("entry must be a file inside plugin package")
+	}
+	rel := filepath.Clean(entry)
+	path := dir
+	parts := strings.Split(rel, string(filepath.Separator))
+	for i, part := range parts {
+		if excludedPackageName(part) {
+			return "", errors.New("entry cannot be in a hidden path or node_modules; bundle it inside plugin package")
+		}
+		path = filepath.Join(path, part)
+		info, err := os.Lstat(path)
+		if err != nil {
+			return "", fmt.Errorf("read plugin entry: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("plugin entry cannot contain symlinks")
+		}
+		if i < len(parts)-1 && !info.IsDir() {
+			return "", errors.New("plugin entry parent must be a directory")
+		}
+		if i == len(parts)-1 && !info.Mode().IsRegular() {
+			return "", errors.New("plugin entry must be a regular file")
+		}
+	}
+	return rel, nil
+}
+
+func excludedPackageName(name string) bool {
+	return strings.HasPrefix(name, ".") || name == "node_modules"
+}
+
+func prepareBinaryEntry(dir string, manifest domainplugin.Manifest) error {
+	if manifest.Runtime != "binary" {
+		return nil
+	}
+	entry, err := packageEntry(dir, manifest.Entry)
+	if err != nil {
+		return err
+	}
+	if err := os.Chmod(filepath.Join(dir, entry), 0700); err != nil {
+		return fmt.Errorf("make binary plugin entry executable: %w", err)
+	}
+	return nil
 }
 
 // Freeze retains self-contained plugin bundles until an administrator removes
 // unused versions. Symlinks and node_modules are deliberately not executable
 // package dependencies; plugin authors bundle dependencies at build time.
 func (p *Packages) Freeze(ctx context.Context, dir string, manifest domainplugin.Manifest) (string, error) {
+	if err := domainplugin.ValidateManifestIdentity(manifest); err != nil {
+		return "", err
+	}
+	entry, err := packageEntry(dir, manifest.Entry)
+	if err != nil {
+		return "", err
+	}
 	type file struct {
 		name string
 		data []byte
@@ -72,7 +124,7 @@ func (p *Packages) Freeze(ctx context.Context, dir string, manifest domainplugin
 	files := []file{}
 	hash := sha256.New()
 	size := int64(0)
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -83,7 +135,7 @@ func (p *Packages) Freeze(ctx context.Context, dir string, manifest domainplugin
 		if rel == "." {
 			return nil
 		}
-		if strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules" {
+		if excludedPackageName(d.Name()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -135,7 +187,7 @@ func (p *Packages) Freeze(ctx context.Context, dir string, manifest domainplugin
 			return "", errors.New("package contents changed without a version bump")
 		}
 		if _, err := os.Stat(old.Directory); err == nil {
-			return old.Directory, nil
+			return old.Directory, prepareBinaryEntry(old.Directory, manifest)
 		}
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return "", err
@@ -149,7 +201,14 @@ func (p *Packages) Freeze(ctx context.Context, dir string, manifest domainplugin
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(path, f.data, 0600); err != nil {
+		mode := os.FileMode(0600)
+		if manifest.Runtime == "binary" && f.name == entry {
+			mode = 0700
+		}
+		if err := os.WriteFile(path, f.data, mode); err != nil {
+			return "", err
+		}
+		if err := os.Chmod(path, mode); err != nil {
 			return "", err
 		}
 	}

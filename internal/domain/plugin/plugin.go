@@ -10,6 +10,7 @@ type Manifest struct {
 	Name         string                    `json:"name"`
 	Version      string                    `json:"version"`
 	Entry        string                    `json:"entry"`
+	Runtime      string                    `json:"runtime,omitempty"`
 	Description  string                    `json:"description"`
 	ConfigSchema map[string]any            `json:"configSchema"`
 	Tools        []agent.Tool              `json:"tools"`

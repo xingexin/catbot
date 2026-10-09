@@ -35,7 +35,7 @@ func newerBundle(next, previous string) bool {
 // Upgrade shipped packages when their declared version increases. Register
 // preserves configured credentials and grants; active runs retain frozen files.
 func (a *App) registerBundled(ctx context.Context) error {
-	for _, dir := range []string{"example", "mail", "video"} {
+	for _, dir := range []string{"example", "mail", "video", "example-go"} {
 		var old domain.Plugin
 		err := a.Store.Get(ctx, "plugin", dir, &old)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -55,6 +55,14 @@ func (a *App) registerBundled(ctx context.Context) error {
 		}
 		if !missing && !newerBundle(manifest.Version, old.Manifest.Version) {
 			continue
+		}
+		// The optional native example becomes available after its local or Docker build.
+		if dir == "example-go" {
+			if _, err := os.Stat(filepath.Join(a.Options.PluginDir, dir, manifest.Entry)); errors.Is(err, os.ErrNotExist) {
+				continue
+			} else if err != nil {
+				return err
+			}
 		}
 		p, err := a.Plugins.Register(ctx, dir)
 		if err != nil {

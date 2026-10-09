@@ -1022,6 +1022,7 @@ export function Catbot() {
               }
             >
               <Tag>v{p.manifest.version}</Tag>
+              <Tag>{p.manifest.runtime === "binary" ? "原生程序" : "Node.js"}</Tag>
               <p className="muted">{p.manifest.description}</p>
               <Space wrap>
                 {p.manifest.tools.map((t: Row) => (

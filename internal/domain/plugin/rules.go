@@ -19,7 +19,12 @@ func ValidateManifestIdentity(manifest Manifest) error {
 	if !identifier.MatchString(manifest.ID) || !versionIdentifier.MatchString(manifest.Version) || manifest.Name == "" || manifest.Entry == "" {
 		return errors.New("invalid plugin manifest")
 	}
-	return nil
+	switch manifest.Runtime {
+	case "", "node", "binary":
+		return nil
+	default:
+		return fmt.Errorf("unsupported plugin runtime %q: use node or binary", manifest.Runtime)
+	}
 }
 
 // NormalizeManifest validates public tool names and fills execution defaults.

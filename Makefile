@@ -4,7 +4,7 @@ COMPOSE := ./deploy/scripts/compose
 SERVICE ?=
 WAIT_TIMEOUT ?= 300
 
-.PHONY: up start docker check down stop restart status logs help build test dev
+.PHONY: up start docker check down stop restart status logs help build build-plugins test test-plugins dev
 
 up: check
 	$(COMPOSE) up --build --wait --wait-timeout $(WAIT_TIMEOUT)
@@ -51,16 +51,27 @@ help:
 		'make restart          重启现有容器，不重新构建' \
 		'make stop             停止服务，保留容器和数据' \
 		'make down             停止并移除容器，保留数据卷' \
-		'make build            使用本机 Go、Node.js 编译源码' \
+		'make build            使用本机 Go、Node.js 编译源码和插件' \
+		'make build-plugins    使用本机 Go 编译独立 Go 插件' \
+		'make test-plugins     验证 Go / TS 插件共用宿主协议' \
 		'make test             运行 Go、TypeScript 和部署测试'
 
 build:
 	npm ci
 	npm run build
+	$(MAKE) build-plugins
 	go build -o bin/catbot ./cmd/catbot
+build-plugins:
+	sh scripts/build-go-plugins.sh
+test-plugins:
+	npm run build -w @catbot/plugin-sdk
+	npm run build -w plugins/example
+	go test -tags=integration -race ./internal/bootstrap -run '^TestGoAndNodePluginsUseSameHost$$'
 test:
 	go test -race ./...
+	$(MAKE) test-plugins
 	npm test
+	node --test scripts/create-plugin.test.mjs
 	python3 -m unittest discover -s deploy/tests
 dev:
 	go run ./cmd/catbot

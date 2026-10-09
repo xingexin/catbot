@@ -1,6 +1,6 @@
 # catbot · 可扩展 AI 秘书
 
-Go 对话主干 + 独立 TypeScript 插件 + 三家 Agent SDK 适配 + Temporal 后台任务。提供 Web、QQ 官方机器人和 NapCat / OneBot 个人 QQ 私聊入口。
+Go 对话主干 + 独立 Go / TypeScript 插件 + 三家 Agent SDK 适配 + Temporal 后台任务。提供 Web、QQ 官方机器人和 NapCat / OneBot 个人 QQ 私聊入口。
 
 ## 快速启动
 
@@ -83,13 +83,16 @@ internal/transport/ 管理 HTTP/SSE、MCP、插件宿主协议入口
 internal/worker/    Temporal、即时对话队列、恢复扫描
 runtime/src/        SDK 服务、契约、注册表和三家 Provider
 packages/plugin-sdk/ TypeScript 插件开发包
-plugins/            示例、IMAP 邮箱、视频解析
+packages/plugin-sdk-go/ Go 插件开发包（MCP stdio）
+plugins/            TS / Go 示例、IMAP 邮箱、视频解析
 web/                React + Ant Design 管理端
 scripts/            开发工具与集成验收脚本
 deploy/             Docker、Compose、环境配置、Nginx 与部署脚本/测试
 ```
 
 本次目录迁移与验证记录见 [重构验收](docs/refactor-acceptance.md)。
+
+Go 插件可用 `node scripts/create-plugin.mjs notes-go --language go` 创建，再用 `make build-plugins` 编译；原有 TS 插件继续可用。Go 示例 `example-go` 构建后随服务启动登记，默认停用，可在管理端配置授权后启用。Docker 镜像会构建对应 Linux 平台的插件二进制，具体打包、授权和宿主接口见 [插件开发](docs/plugins.md)。
 
 参见 [架构与恢复语义](docs/architecture.md)、[API 与配置](docs/api.md)、[插件开发](docs/plugins.md)、[运维与联调](docs/operations.md)。
 
@@ -100,6 +103,7 @@ deploy/             Docker、Compose、环境配置、Nginx 与部署脚本/测�
 ```sh
 npm ci
 npm run build
+make build-plugins
 ./deploy/scripts/compose up -d postgres temporal
 ```
 

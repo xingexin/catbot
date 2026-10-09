@@ -20,13 +20,18 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd cmd
 COPY internal internal
-RUN CGO_ENABLED=0 go build -trimpath -o /catbot ./cmd/catbot
+COPY packages/plugin-sdk-go packages/plugin-sdk-go
+COPY plugins plugins
+COPY scripts/build-go-plugins.sh scripts/build-go-plugins.sh
+COPY scripts/build-go-plugins scripts/build-go-plugins
+RUN CGO_ENABLED=0 go build -trimpath -o /catbot ./cmd/catbot && sh scripts/build-go-plugins.sh
 
 FROM node:22-bookworm-slim AS backend
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=go-build /catbot /app/catbot
 COPY --from=node-build /build/plugins /app/plugins
+COPY --from=go-build /build/plugins /app/plugins
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node
 ENV DATA_DIR=/app/data PLUGIN_DIR=/app/plugins LISTEN_ADDR=:8080

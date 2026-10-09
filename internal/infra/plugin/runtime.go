@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,25 @@ func NewRuntime(data, host string, token func(string) string) *Runtime {
 	return &Runtime{DataDir: data, HostURL: host, Token: token, processes: map[string]*process{}}
 }
 
+// pluginCommand supports only fixed launch strategies, never shell commands.
+func pluginCommand(p domainplugin.Plugin) (*exec.Cmd, error) {
+	if err := domainplugin.ValidateManifestIdentity(p.Manifest); err != nil {
+		return nil, err
+	}
+	entry, err := packageEntry(p.Directory, p.Manifest.Entry)
+	if err != nil {
+		return nil, err
+	}
+	path, err := filepath.Abs(filepath.Join(p.Directory, entry))
+	if err != nil {
+		return nil, fmt.Errorf("resolve plugin entry: %w", err)
+	}
+	if p.Manifest.Runtime == "binary" {
+		return exec.Command(path), nil
+	}
+	return exec.Command("node", path), nil
+}
+
 func (r *Runtime) process(ctx context.Context, key string, p domainplugin.Plugin, configuration func(context.Context) (map[string]any, error)) (*process, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -38,6 +58,10 @@ func (r *Runtime) process(ctx context.Context, key string, p domainplugin.Plugin
 	defer r.mu.Unlock()
 	if running := r.processes[key]; running != nil {
 		return running, nil
+	}
+	cmd, err := pluginCommand(p)
+	if err != nil {
+		return nil, err
 	}
 	cfg, err := configuration(ctx)
 	if err != nil {
@@ -52,7 +76,6 @@ func (r *Runtime) process(ctx context.Context, key string, p domainplugin.Plugin
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("node", filepath.Join(p.Directory, p.Manifest.Entry))
 	if err := os.MkdirAll(filepath.Join(r.DataDir, "plugin-home", p.ID), 0700); err != nil {
 		_ = log.Close()
 		return nil, err
@@ -64,6 +87,9 @@ func (r *Runtime) process(ctx context.Context, key string, p domainplugin.Plugin
 	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
 	if err != nil {
 		_ = log.Close()
+		if p.Manifest.Runtime == "binary" {
+			return nil, fmt.Errorf("start binary plugin %s on %s/%s (build the entry for this host; Go: GOOS=%s GOARCH=%s go build): %w", p.ID, runtime.GOOS, runtime.GOARCH, runtime.GOOS, runtime.GOARCH, err)
+		}
 		return nil, fmt.Errorf("start plugin %s: %w", p.ID, err)
 	}
 	tools, err := session.ListTools(ctx, nil)
