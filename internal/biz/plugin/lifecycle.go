@@ -138,6 +138,9 @@ func (m *Manager) Purge(ctx context.Context, id string) error {
 			refs = append(refs, store.RecordRef{Kind: "secret", ID: secret}, store.RecordRef{Kind: lifecycle.ArchiveStorageKind, ID: lifecycle.ArchiveKey(lifecycle.ResourceSecret, secret), Reusable: true})
 		}
 	}
+	if err := lifecycleRepository.RequirePurgeScope(ctx, refs); err != nil {
+		return err
+	}
 	if closer, ok := m.runtime.(interface{ CloseVersions([]string) }); ok {
 		closer.CloseVersions(keys)
 	}

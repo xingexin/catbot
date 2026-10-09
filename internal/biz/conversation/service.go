@@ -81,6 +81,12 @@ func (a *Service) Submit(ctx context.Context, sessionID, prompt, requestID strin
 	if err := convrepo.New(a.Store).GetSession(ctx, sessionID, &session); err != nil {
 		return existing, err
 	}
+	if err := lifecycleRepo.RequireActive(ctx, a.Store, lifecycle.ResourceConfig, session.ConfigID); err != nil {
+		if errors.Is(err, lifecycleRepo.ErrArchived) {
+			return existing, fmt.Errorf("模型配置已归档，请在归档栏恢复或为此对话切换其他模型配置: %w", err)
+		}
+		return existing, err
+	}
 	var config agent.Config
 	if err := a.Store.Get(ctx, "config", session.ConfigID, &config); err != nil {
 		return existing, fmt.Errorf("select a configured execution strategy: %w", err)

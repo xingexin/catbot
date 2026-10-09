@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/xingexin/catbot/internal/config"
 	"github.com/xingexin/catbot/internal/domain/agent"
 	"github.com/xingexin/catbot/internal/domain/lifecycle"
@@ -49,8 +50,8 @@ func (a *Service) SaveConfig(ctx context.Context, c agent.Config) (agent.Config,
 	return c, nil
 }
 func (a *Service) TestConfig(ctx context.Context, id string) (any, error) {
-	var c agent.Config
-	if err := a.Store.Get(ctx, "config", id, &c); err != nil {
+	c, err := a.activeConfig(ctx, id)
+	if err != nil {
 		return nil, err
 	}
 	if c.Kind == "sdk" {
@@ -67,4 +68,29 @@ func (a *Service) TestConfig(ctx context.Context, id string) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"status": "ok", "reply": t.Text, "usage": t.Usage}, nil
+}
+
+// activeConfig snapshots a configuration under the same lock used by archive.
+// The caller releases this admission boundary before any external model I/O.
+func (a *Service) activeConfig(ctx context.Context, id string) (agent.Config, error) {
+	unlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return agent.Config{}, err
+	}
+	defer unlock()
+	if err := a.requireActiveConfig(ctx, id); err != nil {
+		return agent.Config{}, err
+	}
+	var c agent.Config
+	err = a.Store.Get(ctx, "config", id, &c)
+	return c, err
+}
+
+// requireActiveConfig is called while holding lifecycle.ReferenceLock.
+func (a *Service) requireActiveConfig(ctx context.Context, id string) error {
+	err := lifecycleRepo.RequireActive(ctx, a.Store, lifecycle.ResourceConfig, id)
+	if errors.Is(err, lifecycleRepo.ErrArchived) {
+		return fmt.Errorf("模型配置已归档，请在归档栏恢复或切换其他模型配置: %w", err)
+	}
+	return err
 }

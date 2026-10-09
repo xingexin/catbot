@@ -28,7 +28,7 @@ export function Archives({
         showIcon
         type="info"
         message="已归档的内容集中保存在这里"
-        description="恢复后重新显示在原列表；任务保持暂停、插件保持停用。永久删除不可恢复，仍被使用或正在执行的项目会保留并说明原因。"
+        description="恢复后重新显示在原列表；任务保持暂停、插件保持停用。永久删除前会列出关联内容，确认后一起删除且无法恢复；正在执行等运行限制会具体说明。"
         style={{ marginBottom: 20 }}
       />
       <Select

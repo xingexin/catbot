@@ -55,6 +55,8 @@ func (s *Server) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("POST /api/logout", s.logout)
 	api.HandleFunc("POST /api/lifecycle", s.lifecycle)
+	api.HandleFunc("POST /api/lifecycle/purge-preview", s.purgePreview)
+	api.HandleFunc("POST /api/lifecycle/purge-confirm", s.purgeConfirm)
 	api.HandleFunc("GET /api/archives", s.archives)
 	api.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) { JSON(w, 200, map[string]string{"username": "admin"}) })
 	api.HandleFunc("GET /api/status", s.status)

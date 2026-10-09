@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, type Key } from "react";
-import { Alert, App, Button, Table, type TableProps } from "antd";
+import { Alert, App, Button, Table, Tag, type TableProps } from "antd";
 import { api } from "./api";
 import {
   actionDescription,
   actionLabels,
   applyLifecycle,
+  previewPurge,
+  confirmPurge,
+  purgeTargetKey,
   lifecycleItems,
   isLifecycleAction,
   LifecycleAction,
@@ -13,7 +16,99 @@ import {
   retainSelection,
   type LifecycleFailure,
   type LifecycleItem,
+  type LifecycleResult,
+  type PurgePreview,
+  type PurgePreviewItem,
 } from "./lifecycle";
+
+function PurgeImpactList({
+  title,
+  items,
+}: {
+  title: string;
+  items: PurgePreviewItem[];
+}) {
+  if (!items.length) return null;
+  const groups = new Map<Resource, PurgePreviewItem[]>();
+  for (const item of items) {
+    if (!groups.has(item.resource)) groups.set(item.resource, []);
+    groups.get(item.resource)!.push(item);
+  }
+  return (
+    <section aria-label={title}>
+      <h4>
+        {title}（{items.length} 项）
+      </h4>
+      {[...groups].map(([resource, records]) => (
+        <div key={resource}>
+          <strong>
+            {resourceLabels[resource]} · {records.length} 项
+          </strong>
+          <ul>
+            {records.map((item) => (
+              <li key={purgeTargetKey(item)}>
+                {item.name}
+                {!item.archived && <Tag color="orange">未归档</Tag>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function PurgePreviewContent({ preview }: { preview: PurgePreview }) {
+  const selected = preview.items.filter((item) => item.selected);
+  const related = preview.items.filter((item) => !item.selected);
+  return (
+    <>
+      <p>
+        所选 {selected.length} 项
+        {related.length > 0 ? `及关联的 ${related.length} 项内容将一起` : "将"}
+        永久删除，<strong>无法恢复</strong>。
+        {related.some((item) => !item.archived) &&
+          "关联列表中标为「未归档」的内容也会永久删除。"}
+      </p>
+      {preview.items.some((item) => item.resource === Resource.Tasks) && (
+        <p>相关任务将停止调度，执行记录和通知等关联内容也会删除。</p>
+      )}
+      {preview.items.some((item) => item.resource === Resource.Plugins) && (
+        <p>相关插件将停用，并清理插件私有数据。</p>
+      )}
+      {preview.blockers.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="请先处理以下运行限制，再重新预览并确认删除。"
+        />
+      )}
+      <div
+        className="purge-preview-list"
+        tabIndex={0}
+        aria-label="永久删除范围"
+      >
+        {preview.blockers.length > 0 && (
+          <section aria-label="需要先处理的项目">
+            <h4>需要先处理的项目（{preview.blockers.length} 项）</h4>
+            <ul>
+              {preview.blockers.map((item) => (
+                <li key={purgeTargetKey(item)}>
+                  <strong>
+                    {resourceLabels[item.resource]} · {item.name}
+                  </strong>
+                  ：{item.reason}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <PurgeImpactList title="所选内容" items={selected} />
+        <PurgeImpactList title="将同时删除的关联内容" items={related} />
+      </div>
+    </>
+  );
+}
 
 export function useLifecycleSelection(
   items: LifecycleItem[],
@@ -39,6 +134,103 @@ export function useLifecycleSelection(
         old.includes(id) ? old.filter((value) => value !== id) : [...old, id],
       );
   }
+  async function showResult(
+    result: LifecycleResult,
+    action: LifecycleAction,
+    deletedCount?: number,
+  ) {
+    const succeeded = new Set(result.succeeded);
+    setSelected((old) => old.filter((id) => !succeeded.has(id)));
+    setFailures(result.failed);
+    onSucceeded?.(result.succeeded, action);
+    const count = deletedCount ?? result.succeeded.length;
+    if (count)
+      message.success(
+        `已${actionLabels[action]} ${count} 项${deletedCount !== undefined ? "内容" : ""}`,
+      );
+    if (result.failed.length)
+      message.warning(
+        `${result.failed.length} 项未${actionLabels[action]}，请查看列表上方的原因。`,
+      );
+    try {
+      await onRefresh();
+    } catch {
+      message.error("操作结果已返回，但列表刷新失败，请刷新页面核对。");
+    }
+  }
+  async function showPurgeConfirmation(targets: LifecycleItem[]) {
+    setBusy(true);
+    setFailures([]);
+    let preview: PurgePreview;
+    try {
+      preview = await previewPurge(targets, (body) =>
+        api("/lifecycle/purge-preview", body),
+      );
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : "无法加载删除范围，请重新预览。",
+      );
+      locked.current = false;
+      return;
+    } finally {
+      setBusy(false);
+    }
+    const hasRelated = preview.items.some((item) => !item.selected);
+    const dialog = modal.confirm({
+      title: hasRelated
+        ? "是否同时删除关联内容？"
+        : `永久删除所选 ${targets.length} 项？`,
+      width: 720,
+      content: <PurgePreviewContent preview={preview} />,
+      okText: hasRelated ? "确认全部永久删除" : "确认永久删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true, disabled: preview.blockers.length > 0 },
+      maskClosable: false,
+      onCancel: () => {
+        locked.current = false;
+      },
+      onOk: async () => {
+        dialog.update({
+          cancelButtonProps: { disabled: true },
+          keyboard: false,
+        });
+        setBusy(true);
+        setFailures([]);
+        try {
+          const result = await confirmPurge(targets, preview, (body) =>
+            api("/lifecycle/purge-confirm", body),
+          );
+          await showResult(
+            result,
+            LifecycleAction.Purge,
+            result.deleted.length,
+          );
+        } catch (error) {
+          const reason = `${error instanceof Error ? error.message : "删除结果尚未确认。"} 请刷新核对，重新点击「永久删除」预览范围并确认。`;
+          setFailures(
+            targets.map((item) => ({
+              id: item.id,
+              name: item.name,
+              error: reason,
+            })),
+          );
+          message.error(reason);
+          // Never resubmit the old token automatically. The next click performs
+          // a fresh preview so changed dependencies require another confirmation.
+          try {
+            await onRefresh();
+          } catch {
+            /* Keep the original deletion error visible. */
+          }
+        } finally {
+          setBusy(false);
+          locked.current = false;
+        }
+      },
+    });
+  }
   function confirm(action: LifecycleAction, only?: LifecycleItem[]) {
     if (locked.current) return;
     if (!isLifecycleAction(action)) {
@@ -48,6 +240,10 @@ export function useLifecycleSelection(
     const targets = only ?? items.filter((item) => selectedSet.has(item.id));
     if (!targets.length) return;
     locked.current = true;
+    if (action === LifecycleAction.Purge) {
+      void showPurgeConfirmation(targets);
+      return;
+    }
     modal.confirm({
       title: `${actionLabels[action]}所选 ${targets.length} 项？`,
       content: (
@@ -63,12 +259,8 @@ export function useLifecycleSelection(
           {targets.length > 100 && <p>将按类型分组，每批最多处理 100 项。</p>}
         </>
       ),
-      okText:
-        action === LifecycleAction.Purge
-          ? "确认永久删除"
-          : `确认${actionLabels[action]}`,
+      okText: `确认${actionLabels[action]}`,
       cancelText: "取消",
-      okButtonProps: { danger: action === LifecycleAction.Purge },
       maskClosable: false,
       onCancel: () => {
         locked.current = false;
@@ -80,19 +272,7 @@ export function useLifecycleSelection(
           const result = await applyLifecycle(action, targets, (body) =>
             api("/lifecycle", body),
           );
-          const succeeded = new Set(result.succeeded);
-          setSelected((old) => old.filter((id) => !succeeded.has(id)));
-          setFailures(result.failed);
-          onSucceeded?.(result.succeeded, action);
-          if (result.succeeded.length)
-            message.success(
-              `已${actionLabels[action]} ${result.succeeded.length} 项`,
-            );
-          if (result.failed.length)
-            message.warning(
-              `${result.failed.length} 项未${actionLabels[action]}，请查看列表上方的原因。`,
-            );
-          await onRefresh();
+          await showResult(result, action);
         } catch (error) {
           message.error(
             error instanceof Error

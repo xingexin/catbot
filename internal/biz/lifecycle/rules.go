@@ -55,6 +55,12 @@ func (s *Service) check(ctx context.Context, r domain.Resource, id string, recor
 			}
 		}
 	case domain.ResourceConfig, domain.ResourcePersona:
+		// Archiving a model preserves its identity and all historical references.
+		// New execution entry points reject archived configs; only purge needs
+		// the dependent records removed first.
+		if r == domain.ResourceConfig && !purge {
+			return nil
+		}
 		if s.CheckBindings != nil {
 			if err := s.CheckBindings(ctx, r.StorageKind(), id); err != nil {
 				return err

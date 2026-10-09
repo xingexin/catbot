@@ -23,6 +23,8 @@ func TestHTTPLifecycleRequiresAuthentication(t *testing.T) {
 	for _, request := range []struct{ method, path, body string }{
 		{http.MethodGet, "/api/archives", ""},
 		{http.MethodPost, "/api/lifecycle", `{"resource":1,"action":1,"ids":["session"]}`},
+		{http.MethodPost, "/api/lifecycle/purge-preview", `{"items":[{"resource":1,"id":"session"}]}`},
+		{http.MethodPost, "/api/lifecycle/purge-confirm", `{"items":[{"resource":1,"id":"session"}],"token":"untrusted"}`},
 	} {
 		response := f.request(request.method, request.path, request.body)
 		if response.Code != http.StatusUnauthorized {
@@ -269,4 +271,204 @@ func lifecycleList(t *testing.T, f fixture, path string) []json.RawMessage {
 		t.Fatal("list must return a JSON array", err)
 	}
 	return rows
+}
+
+func TestHTTPReferencedModelConfigCanBeArchivedWithoutDeletingHistory(t *testing.T) {
+	f, configID, sessionID, runID := lifecyclePurgeFixture(t)
+	result := lifecycleRequest(t, f, lifecycle.ResourceConfig, lifecycle.ActionArchive, configID)
+	if len(result.Failed) != 0 || !reflect.DeepEqual(result.Succeeded, []string{configID}) {
+		t.Fatalf("history references should not block archiving: %+v", result)
+	}
+	if rows := lifecycleList(t, f, "/api/configs"); len(rows) != 1 {
+		t.Fatalf("only unrelated configuration should remain selectable: %s", rows)
+	}
+	var session conversation.Session
+	if err := f.store.Get(t.Context(), "session", sessionID, &session); err != nil || session.ConfigID != configID || len(session.Messages) != 1 {
+		t.Fatalf("archive modified conversation history or binding: %+v, %v", session, err)
+	}
+	var run conversation.Run
+	if err := f.store.Get(t.Context(), "run", runID, &run); err != nil || run.Result != "private result" {
+		t.Fatalf("archive removed execution history: %+v, %v", run, err)
+	}
+}
+
+func TestHTTPPurgePreviewIsReadOnlyAndListsAssociatedHistory(t *testing.T) {
+	f, configID, sessionID, runID := lifecyclePurgeFixture(t)
+	if result := lifecycleRequest(t, f, lifecycle.ResourceConfig, lifecycle.ActionArchive, configID); len(result.Failed) != 0 {
+		t.Fatal(result)
+	}
+	before := lifecyclePurgeState(t, f, runID)
+	plan := lifecyclePurgePreview(t, f, lifecyclebiz.PurgeTarget{Resource: lifecycle.ResourceConfig, ID: configID})
+	if plan.Token == "" || len(plan.Blockers) != 0 || len(plan.Items) != 3 {
+		t.Fatalf("unexpected purge preview: %+v", plan)
+	}
+	items := make(map[string]lifecyclebiz.PurgeItem)
+	for _, item := range plan.Items {
+		items[item.ID] = item
+	}
+	if !items[configID].Selected || !items[configID].Archived || items[sessionID].Selected || items[sessionID].Name != "associated conversation" || items[runID].Resource != lifecycle.ResourceRun {
+		t.Fatalf("preview lost selected/associated record details: %+v", plan.Items)
+	}
+	if after := lifecyclePurgeState(t, f, runID); !reflect.DeepEqual(before, after) {
+		t.Fatal("read-only preview changed records, archive state, or events")
+	}
+	if got := lifecycleArchives(t, f); len(got) != 1 || got[0].RecordID != configID {
+		t.Fatalf("preview archived associated history: %+v", got)
+	}
+}
+
+func TestHTTPPurgeConfirmRequiresTokenAndRejectsChangedPreview(t *testing.T) {
+	f, configID, sessionID, runID := lifecyclePurgeFixture(t)
+	if result := lifecycleRequest(t, f, lifecycle.ResourceConfig, lifecycle.ActionArchive, configID); len(result.Failed) != 0 {
+		t.Fatal(result)
+	}
+	target := lifecyclebiz.PurgeTarget{Resource: lifecycle.ResourceConfig, ID: configID}
+	before := lifecyclePurgeState(t, f, runID)
+	for _, tc := range []struct{ name, token string }{{"missing token", ""}, {"forged token", "untrusted"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := f.request(http.MethodPost, "/api/lifecycle/purge-confirm", lifecyclePurgeBody(t, lifecyclebiz.PurgeRequest{Items: []lifecyclebiz.PurgeTarget{target}, Token: tc.token}))
+			if response.Code != http.StatusBadRequest {
+				t.Fatal(response.Code, response.Body.String())
+			}
+			if after := lifecyclePurgeState(t, f, runID); !reflect.DeepEqual(before, after) {
+				t.Fatal("rejected confirmation deleted records")
+			}
+		})
+	}
+	plan := lifecyclePurgePreview(t, f, target)
+	var session conversation.Session
+	if err := f.store.Get(t.Context(), "session", sessionID, &session); err != nil {
+		t.Fatal(err)
+	}
+	session.Messages = append(session.Messages, agentdomain.Message{Role: "user", Content: "new content after preview"})
+	if err := f.store.Put(t.Context(), "session", sessionID, session); err != nil {
+		t.Fatal(err)
+	}
+	before = lifecyclePurgeState(t, f, runID)
+	response := f.request(http.MethodPost, "/api/lifecycle/purge-confirm", lifecyclePurgeBody(t, lifecyclebiz.PurgeRequest{Items: []lifecyclebiz.PurgeTarget{target}, Token: plan.Token}))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("changed graph was deleted with stale token: %d %s", response.Code, response.Body.String())
+	}
+	if after := lifecyclePurgeState(t, f, runID); !reflect.DeepEqual(before, after) {
+		t.Fatal("stale confirmation changed data")
+	}
+}
+
+func TestHTTPPurgeConfirmDeletesAssociatedHistoryOnlyAfterPreview(t *testing.T) {
+	f, configID, sessionID, runID := lifecyclePurgeFixture(t)
+	if result := lifecycleRequest(t, f, lifecycle.ResourceConfig, lifecycle.ActionArchive, configID); len(result.Failed) != 0 {
+		t.Fatal(result)
+	}
+	target := lifecyclebiz.PurgeTarget{Resource: lifecycle.ResourceConfig, ID: configID}
+	plan := lifecyclePurgePreview(t, f, target)
+	response := f.request(http.MethodPost, "/api/lifecycle/purge-confirm", lifecyclePurgeBody(t, lifecyclebiz.PurgeRequest{Items: []lifecyclebiz.PurgeTarget{target}, Token: plan.Token}))
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	var result lifecyclebiz.PurgeResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.Deleted == nil || result.Failed == nil || len(result.Deleted) != len(plan.Items) || len(result.Failed) != 0 {
+		t.Fatalf("invalid confirmation response: %+v, %v", result, err)
+	}
+	for _, identity := range []store.RecordRef{{Kind: "config", ID: configID}, {Kind: "session", ID: sessionID}, {Kind: "run", ID: runID}} {
+		var payload json.RawMessage
+		if err := f.store.Get(t.Context(), identity.Kind, identity.ID, &payload); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("confirmed cascade retained associated payload: %+v, %v", identity, err)
+		}
+	}
+	if events, err := f.store.Events(t.Context(), runID, 0); err != nil || len(events) != 0 {
+		t.Fatalf("confirmed cascade retained private run events: %+v, %v", events, err)
+	}
+	for _, kind := range []string{"config", "session"} {
+		var payload json.RawMessage
+		if err := f.store.Get(t.Context(), kind, "unrelated-"+kind, &payload); err != nil {
+			t.Fatalf("cascade deleted unrelated %s: %v", kind, err)
+		}
+	}
+	if rows := lifecycleArchives(t, f); len(rows) != 0 {
+		t.Fatalf("cascade retained archive entries: %+v", rows)
+	}
+}
+
+func TestHTTPPurgePreviewRejectsInvalidTargets(t *testing.T) {
+	f := newFixture(t)
+	for _, tc := range []struct{ name, body string }{
+		{"empty targets", `{"items":[]}`},
+		{"unknown resource", `{"items":[{"resource":0,"id":"s"}]}`},
+		{"string resource", `{"items":[{"resource":"sessions","id":"s"}]}`},
+		{"empty ID", `{"items":[{"resource":1,"id":" "}]}`},
+		{"multiple payloads", `{"items":[]} {"items":[]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := f.request(http.MethodPost, "/api/lifecycle/purge-preview", tc.body)
+			if response.Code != http.StatusBadRequest {
+				t.Fatal(response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func lifecyclePurgeFixture(t *testing.T) (fixture, string, string, string) {
+	t.Helper()
+	f := newFixture(t)
+	configID, sessionID, runID := "purge-model", "purge-session", "purge-run"
+	for _, record := range []struct {
+		kind, id string
+		value    any
+	}{
+		{"config", configID, agentdomain.Config{ID: configID, Name: "archived model", Kind: "api"}},
+		{"session", sessionID, conversation.Session{ID: sessionID, Title: "associated conversation", ConfigID: configID, Channel: "web", Messages: []agentdomain.Message{{Role: "user", Content: "private history"}}}},
+		{"run", runID, conversation.Run{ID: runID, SessionID: sessionID, Status: "completed", Result: "private result", Config: agentdomain.Config{ID: configID}}},
+		{"config", "unrelated-config", agentdomain.Config{ID: "unrelated-config", Name: "unrelated model"}},
+		{"session", "unrelated-session", conversation.Session{ID: "unrelated-session", ConfigID: "unrelated-config"}},
+	} {
+		if err := f.store.Put(t.Context(), record.kind, record.id, record.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.store.Append(t.Context(), store.EventRecord{RunID: runID, Type: "completed", Data: map[string]any{"text": "private event"}, Time: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	return f, configID, sessionID, runID
+}
+
+func lifecyclePurgePreview(t *testing.T, f fixture, targets ...lifecyclebiz.PurgeTarget) lifecyclebiz.PurgePlan {
+	t.Helper()
+	response := f.request(http.MethodPost, "/api/lifecycle/purge-preview", lifecyclePurgeBody(t, lifecyclebiz.PurgeRequest{Items: targets}))
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	var plan lifecyclebiz.PurgePlan
+	if err := json.Unmarshal(response.Body.Bytes(), &plan); err != nil || plan.Items == nil || plan.Blockers == nil {
+		t.Fatalf("invalid preview contract: %+v, %v", plan, err)
+	}
+	return plan
+}
+
+func lifecyclePurgeBody(t *testing.T, request lifecyclebiz.PurgeRequest) string {
+	t.Helper()
+	body, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+func lifecyclePurgeState(t *testing.T, f fixture, runID string) map[string]any {
+	t.Helper()
+	state := map[string]any{}
+	for resource := lifecycle.ResourceSession; resource <= lifecycle.ResourceSecret; resource++ {
+		kind := resource.StorageKind()
+		rows, err := f.store.List(t.Context(), kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state[kind] = rows
+	}
+	state["archives"] = lifecycleArchives(t, f)
+	events, err := f.store.Events(t.Context(), runID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state["events"] = events
+	return state
 }

@@ -26,8 +26,8 @@ type TranscribeInput struct {
 }
 
 func (a *Service) Generate(ctx context.Context, p plugin.Plugin, operationID string, in GenerateInput) (map[string]any, error) {
-	var c agentdomain.Config
-	if err := a.Store.Get(ctx, "config", in.ConfigID, &c); err != nil {
+	c, err := a.activeConfig(ctx, in.ConfigID)
+	if err != nil {
 		return nil, err
 	}
 	if c.Kind != "api" {
@@ -67,8 +67,8 @@ func (a *Service) Generate(ctx context.Context, p plugin.Plugin, operationID str
 }
 
 func (a *Service) Transcribe(ctx context.Context, p plugin.Plugin, operationID string, in TranscribeInput) (map[string]any, error) {
-	var c agentdomain.Config
-	if err := a.Store.Get(ctx, "config", in.ConfigID, &c); err != nil {
+	c, err := a.activeConfig(ctx, in.ConfigID)
+	if err != nil {
 		return nil, err
 	}
 	if c.Kind != "api" || (c.Protocol != "openai-chat" && c.Protocol != "openai-responses") {

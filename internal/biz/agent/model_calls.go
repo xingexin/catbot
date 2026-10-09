@@ -8,6 +8,7 @@ import (
 	"time"
 
 	agentdomain "github.com/xingexin/catbot/internal/domain/agent"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
 	"github.com/xingexin/catbot/internal/domain/plugin"
 	"github.com/xingexin/catbot/internal/infra/agent/modelapi"
 	"github.com/xingexin/catbot/internal/infra/idgen"
@@ -25,8 +26,8 @@ func (a *Service) withModelCall(ctx context.Context, p plugin.Plugin, operationI
 		ConfigID: c.ID, Model: model, Protocol: c.Protocol, Kind: kind,
 		OperationID: operationID, Status: "running", StartedAt: time.Now().UTC(),
 	}
-	if err := a.Store.Put(ctx, "model-call", call.ID, call); err != nil {
-		return nil, errors.New("cannot record model call; request was not sent")
+	if err := a.beginModelCall(ctx, call); err != nil {
+		return nil, err
 	}
 	result, usage, callErr := perform()
 	finished := time.Now().UTC()
@@ -85,6 +86,21 @@ func (a *Service) RecoverModelCalls(ctx context.Context) error {
 		if err := a.Store.Put(ctx, "model-call", call.ID, call); err != nil {
 			return fmt.Errorf("mark interrupted model call: %w", err)
 		}
+	}
+	return nil
+}
+
+func (a *Service) beginModelCall(ctx context.Context, call agentdomain.ModelCall) error {
+	unlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := a.requireActiveConfig(ctx, call.ConfigID); err != nil {
+		return err
+	}
+	if err := a.Store.Put(ctx, "model-call", call.ID, call); err != nil {
+		return errors.New("cannot record model call; request was not sent")
 	}
 	return nil
 }

@@ -1243,3 +1243,28 @@ button:focus-visible {
     display: none;
   }
 }
+
+.purge-preview-list {
+  max-height: min(48vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 12px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffafb;
+}
+.purge-preview-list h4 {
+  margin: 16px 0 10px;
+}
+.purge-preview-list ul {
+  padding-left: 20px;
+  margin: 6px 0 16px;
+}
+.purge-preview-list li {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.purge-preview-list .ant-tag {
+  margin-left: 8px;
+}

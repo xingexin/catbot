@@ -121,19 +121,17 @@ func TestArchiveBatchReportsBusyMissingAndSuccessfulRecords(t *testing.T) {
 	}
 }
 
-func TestArchiveAndPurgeProtectReferencesAndDefaultPersona(t *testing.T) {
+func TestArchivePreservesModelReferencesAndProtectsDefaultPersona(t *testing.T) {
 	svc, s := fixture(t)
 	put(t, s, "persona", "p", persona.Persona{ID: "p", Default: true})
 	put(t, s, "config", "c", agent.Config{ID: "c"})
 	put(t, s, "session", "s", conversation.Session{ID: "s", ConfigID: "c", PersonaID: "p"})
-	for _, item := range []struct {
-		r  domain.Resource
-		id string
-	}{{domain.ResourcePersona, "p"}, {domain.ResourceConfig, "c"}} {
-		result := perform(t, svc, item.r, domain.ActionArchive, item.id)
-		if len(result.Failed) != 1 {
-			t.Fatal(result)
-		}
+	if result := perform(t, svc, domain.ResourcePersona, domain.ActionArchive, "p"); len(result.Failed) != 1 {
+		t.Fatal("default persona must remain available", result)
+	}
+	succeeded(t, perform(t, svc, domain.ResourceConfig, domain.ActionArchive, "c"), 1)
+	if result := perform(t, svc, domain.ResourceConfig, domain.ActionPurge, "c"); len(result.Failed) != 1 {
+		t.Fatal("referenced model was permanently deleted without confirmation", result)
 	}
 	succeeded(t, perform(t, svc, domain.ResourceSession, domain.ActionArchive, "s"), 1)
 	put(t, s, "task", "task", task.Task{ID: "task", SessionID: "s", Name: "保留通知目标"})

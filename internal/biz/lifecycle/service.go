@@ -162,6 +162,9 @@ func (s *Service) apply(ctx context.Context, r domain.Resource, action domain.Ac
 		if err != nil {
 			return err
 		}
+		if err := repository.RequirePurgeScope(ctx, refs); err != nil {
+			return err
+		}
 		// File deletion precedes metadata removal. A failed unlink retains the archived
 		// record for retry; a failed database commit is also safe to retry after ENOENT.
 		if r == domain.ResourceArtifact {

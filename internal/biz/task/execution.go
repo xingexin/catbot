@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/xingexin/catbot/internal/biz/plugin"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	archive "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	plugindomain "github.com/xingexin/catbot/internal/domain/plugin"
 	taskentity "github.com/xingexin/catbot/internal/domain/task/entity"
 	taskrepository "github.com/xingexin/catbot/internal/domain/task/repository"
@@ -68,6 +70,23 @@ func (e *ExecutionHost) Begin(ctx context.Context, in taskentity.Input, id strin
 			return taskentity.Snapshot{}, err
 		}
 		t.Versions[pluginID] = key
+	}
+	// New snapshots and configuration archival share the reference lock. A saved
+	// snapshot returned above remains valid when its source configuration is archived.
+	referenceUnlock, err := e.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return taskentity.Snapshot{}, err
+	}
+	defer referenceUnlock()
+	if err := archive.RequireActive(ctx, e.Store, lifecycle.ResourceConfig, t.ConfigID); err != nil {
+		if !errors.Is(err, archive.ErrArchived) && !errors.Is(err, archive.ErrPurged) {
+			return taskentity.Snapshot{}, err
+		}
+		reason := fmt.Errorf("任务使用的模型配置不可用，请恢复配置或为任务更换模型配置: %w", err)
+		if err := taskrepository.New(e.Store).SaveExecution(ctx, taskentity.TaskExecution{ID: id, TaskID: t.ID, Status: "skipped", Error: reason.Error(), StartedAt: time.Now().UTC()}); err != nil {
+			return taskentity.Snapshot{}, err
+		}
+		return taskentity.Snapshot{}, taskentity.NewExecutionError(reason.Error(), "InactiveTask", reason)
 	}
 	snap := taskentity.Snapshot{Task: t}
 	if err := e.Store.Get(ctx, "config", t.ConfigID, &snap.Config); err != nil {
