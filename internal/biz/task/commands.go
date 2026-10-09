@@ -9,6 +9,8 @@ import (
 
 	"github.com/xingexin/catbot/internal/domain/agent"
 	"github.com/xingexin/catbot/internal/domain/conversation"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepository "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	"github.com/xingexin/catbot/internal/domain/persona"
 	taskentity "github.com/xingexin/catbot/internal/domain/task/entity"
 	taskrepository "github.com/xingexin/catbot/internal/domain/task/repository"
@@ -50,6 +52,21 @@ func (a *Commands) SaveTask(ctx context.Context, t taskentity.Task) (taskentity.
 }
 
 func (a *Commands) SaveTaskLocked(ctx context.Context, t taskentity.Task) (taskentity.Task, error) {
+	referenceUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return t, err
+	}
+	defer referenceUnlock()
+
+	if err := requireTaskActive(ctx, a.Store, t.ID); err != nil {
+		return t, err
+	}
+	for resource, id := range map[lifecycle.Resource]string{lifecycle.ResourceConfig: t.ConfigID, lifecycle.ResourcePersona: t.PersonaID, lifecycle.ResourceSession: t.SessionID} {
+		if err := lifecycleRepository.RequireActive(ctx, a.Store, resource, id); err != nil {
+			return t, err
+		}
+	}
+
 	var previous *taskentity.Task
 	old, err := taskrepository.New(a.Store).Task(ctx, t.ID)
 	if err == nil {
@@ -141,6 +158,9 @@ func (a *Commands) ControlTaskForSession(ctx context.Context, id, action, operat
 		return nil, err
 	}
 	defer unlock()
+	if err := requireTaskActive(ctx, a.Store, id); err != nil {
+		return nil, err
+	}
 	t, err = taskrepository.New(a.Store).Task(ctx, id)
 	if err != nil {
 		return nil, err
@@ -148,19 +168,20 @@ func (a *Commands) ControlTaskForSession(ctx context.Context, id, action, operat
 	if expectedSessionID != "" && t.SessionID != expectedSessionID {
 		return nil, errors.New("task not authorized for this group conversation")
 	}
-	if action == "trigger" {
-		if t.Status == "cancelled" {
+	control := taskentity.ParseControlAction(action)
+	if control == taskentity.ControlTrigger {
+		if taskentity.ParseState(t.Status) == taskentity.StateCancelled {
 			return nil, errors.New("task is cancelled")
 		}
 		executionID, err := a.Scheduler.Trigger(ctx, t, operationID)
 		return map[string]any{"executionId": executionID}, err
 	}
-	switch action {
-	case "pause":
+	switch control {
+	case taskentity.ControlPause:
 		t.Paused = true
-	case "resume":
+	case taskentity.ControlResume:
 		t.Paused = false
-	case "cancel":
+	case taskentity.ControlCancel:
 		t.Status = "cancelled"
 		t.Paused = true
 		if err := a.Store.Put(ctx, "schedule-intent", id, scheduleIntent{Task: t, Cancel: true}); err != nil {
@@ -191,34 +212,46 @@ func (a *Commands) PauseDependent(ctx context.Context, id, taskID string) error 
 	if err != nil {
 		return err
 	}
-	if _, uses := t.Versions[id]; uses && !t.Paused && t.Status != "cancelled" {
-		// Retain pinned snapshots for executions already in flight.
-		old := t
-		t.Paused = true
-		t.Status = "paused"
-		t.Error = "dependency disabled: " + id
-		if err := a.Store.Put(ctx, "schedule-intent", t.ID, scheduleIntent{Task: t, Previous: &old}); err != nil {
-			return err
-		}
-		if err := taskrepository.New(a.Store).SaveTask(ctx, t); err != nil {
-			return err
-		}
-		if a.Scheduler != nil {
-			if err := a.Scheduler.Apply(ctx, t, &old); err != nil {
-				return err
-			}
-			if err := a.Store.Delete(ctx, "schedule-intent", t.ID); err != nil {
-				return err
-			}
-		}
+	if _, uses := t.Versions[id]; !uses || taskentity.ParseState(t.Status).Terminal() {
+		return nil
 	}
-	return nil
+	archived, err := lifecycleRepository.Archived(ctx, a.Store, lifecycle.ResourceTask, taskID)
+	if err != nil || archived {
+		return err
+	}
+	var pending scheduleIntent
+	pendingErr := a.Store.Get(ctx, "schedule-intent", t.ID, &pending)
+	if pendingErr != nil && !errors.Is(pendingErr, store.ErrNotFound) {
+		return pendingErr
+	}
+	if t.Paused && errors.Is(pendingErr, store.ErrNotFound) {
+		return nil
+	}
+	if a.Scheduler == nil {
+		return errors.New("Temporal is not connected; dependency schedule could not be paused")
+	}
+	if pendingErr == nil && pending.Archive {
+		return a.completeArchive(ctx, pending)
+	}
+	old := t
+	t.Paused, t.Status, t.Error = true, taskentity.StatePaused.WireName(), "dependency disabled: "+id
+	if err := a.Store.Put(ctx, "schedule-intent", t.ID, scheduleIntent{Task: t, Previous: &old}); err != nil {
+		return err
+	}
+	if err := taskrepository.New(a.Store).SaveTask(ctx, t); err != nil {
+		return err
+	}
+	if err := a.Scheduler.Apply(ctx, t, &old); err != nil {
+		return err
+	}
+	return a.Store.Delete(ctx, "schedule-intent", t.ID)
 }
 
 type scheduleIntent struct {
 	Task     taskentity.Task  `json:"task"`
 	Previous *taskentity.Task `json:"previous,omitempty"`
 	Cancel   bool             `json:"cancel"`
+	Archive  bool             `json:"archive,omitempty"`
 }
 
 func (a *Commands) Reconcile(ctx context.Context) {
@@ -245,6 +278,13 @@ func (a *Commands) ReconcileOne(ctx context.Context, in scheduleIntent) error {
 		return err
 	}
 	defer unlock()
+	purged, err := store.Purged(ctx, a.Store, "task", in.Task.ID)
+	if err != nil {
+		return err
+	}
+	if purged {
+		return a.Store.Delete(ctx, "schedule-intent", in.Task.ID)
+	}
 	// Re-read under the lock; a new user edit may have replaced this intent.
 	if err := a.Store.Get(ctx, "schedule-intent", in.Task.ID, &in); err != nil {
 		return err
@@ -256,6 +296,16 @@ func (a *Commands) ReconcileOne(ctx context.Context, in scheduleIntent) error {
 	if current.Revision != in.Task.Revision {
 		return a.Store.Delete(ctx, "schedule-intent", in.Task.ID)
 	}
+	if in.Archive {
+		return a.completeArchive(ctx, in)
+	}
+	archived, err := lifecycleRepository.Archived(ctx, a.Store, lifecycle.ResourceTask, in.Task.ID)
+	if err != nil {
+		return err
+	}
+	if archived {
+		return a.Store.Delete(ctx, "schedule-intent", in.Task.ID)
+	}
 	if in.Cancel {
 		err = a.Scheduler.Cancel(ctx, current)
 	} else {
@@ -264,7 +314,7 @@ func (a *Commands) ReconcileOne(ctx context.Context, in scheduleIntent) error {
 	if err != nil {
 		return err
 	}
-	if !in.Cancel && current.Status != "completed" && current.Status != "failed" {
+	if !in.Cancel && taskentity.ParseState(current.Status) != taskentity.StateCompleted && taskentity.ParseState(current.Status) != taskentity.StateFailed {
 		current.Status = "active"
 		if current.Paused {
 			current.Status = "paused"

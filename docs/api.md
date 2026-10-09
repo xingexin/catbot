@@ -11,9 +11,10 @@
 | `PUT /api/qq/onebot` | 修改 OneBot 私聊联系人、群及人格绑定，需管理员登录 |
 | `GET/POST /api/secrets` | 凭证引用列表 / 加密保存 |
 | `GET/POST /api/configs` | 模型配置 |
+| `DELETE /api/configs/{id}` | 兼容旧客户端：归档未被引用的模型配置，不执行永久删除 |
 | `POST /api/configs/{id}/test` | API 连接检查；SDK 通过对话联调 |
 | `GET/POST /api/personas` | 人格；复制或导入时不传 ID |
-| `DELETE /api/personas/{id}` | 删除未被引用的人格 |
+| `DELETE /api/personas/{id}` | 兼容旧客户端：归档未被引用的非默认人格，不执行永久删除 |
 | `GET/POST /api/sessions` | 会话创建 / 修改绑定 |
 | `POST /api/sessions/{id}/messages` | `message`、可选 `requestId` |
 | `GET /api/runs/{id}/events` | SSE，支持 Last-Event-ID |
@@ -34,6 +35,89 @@
 | `GET /api/artifacts` | 上传文件、插件解析结果 |
 | `GET /api/notifications` | 任务通知 |
 | `GET /api/deliveries` | QQ 投递状态 |
+| `GET /api/archives` | 归档索引，仅返回类型、记录 ID、名称和归档时间 |
+| `POST /api/lifecycle` | 按数字枚举批量归档、恢复或永久删除 |
+
+## 归档、恢复与永久删除
+
+普通管理列表只返回未归档记录。管理端在各列表提供选择与批量归档，在「归档栏」提供恢复和永久删除；归档保留原始记录，永久删除移除业务记录及按资源处理的关联数据。只有已归档记录才能永久删除，系统保留防止重复执行所需的无正文标识。
+
+`GET /api/archives` 返回数组：
+
+```json
+[
+  {
+    "id": "1:session-example",
+    "resource": 1,
+    "recordId": "session-example",
+    "name": "项目讨论",
+    "archivedAt": "2026-10-09T02:00:00Z"
+  }
+]
+```
+
+`id` 是归档索引的复合键。调用生命周期接口时使用 `recordId`，不要把归档索引 `id` 当作业务记录 ID。归档索引不包含会话正文、提示词、运行结果或凭证内容；凭证列表也只提供名称和引用信息，不返回 Key、密码或加密正文。
+
+`POST /api/lifecycle` 请求：
+
+```json
+{
+  "resource": 1,
+  "action": 1,
+  "ids": ["session-example", "session-busy"]
+}
+```
+
+`resource` 和 `action` 必须是 JSON 数字，不接受字符串名称。`0` 为 `Unknown` 保留值，不能提交；其他未定义值同样拒绝，不会自动转成某种操作。
+
+| `resource` | 对应列表 | 含义 |
+|---|---|---|
+| `1` | `sessions` | 对话 |
+| `2` | `tasks` | 定时任务，包括邮箱监听 |
+| `3` | `artifacts` | 文件与解析产物 |
+| `4` | `personas` | 人格 |
+| `5` | `plugins` | 插件 |
+| `6` | `configs` | 模型配置 |
+| `7` | `runs` | 对话运行记录 |
+| `8` | `executions` | 任务执行记录 |
+| `9` | `notifications` | 任务通知 |
+| `10` | `deliveries` | QQ 投递记录 |
+| `11` | `model-calls` | 插件模型调用记录 |
+| `12` | `secrets` | 凭证 |
+
+| `action` | 操作 |
+|---|---|
+| `1` | Archive：归档 |
+| `2` | Restore：恢复 |
+| `3` | Purge：永久删除 |
+
+每次请求只处理一种资源，`ids` 长度必须为 **1 至 100**，批内重复 ID 只处理一次。ID 不能为空、超过 512 字节或包含 NUL。跨类型选择先按 `resource` 分组，超过 100 项分批提交，不可静默截断。请求结构、枚举或数量不合法时返回 HTTP 400 和 `{"error":"..."}`，不会开始处理该批。
+
+有效请求逐项执行，允许部分成功，不是整批事务。HTTP 200 的响应也可能包含失败项，调用方必须检查两个数组：
+
+```json
+{
+  "succeeded": ["session-example"],
+  "failed": [
+    {
+      "id": "session-busy",
+      "error": "会话仍有执行中、排队中或等待通知的请求，请稍后再试"
+    }
+  ]
+}
+```
+
+管理端仅移除成功项的选择，保留失败项并显示名称及原因，然后刷新列表。永久删除前明确提示无法恢复并要求确认。
+
+资源行为与依赖保护：
+
+- **任务**：归档前确认没有执行中的工作，并停止实际调度；恢复后保持暂停，不会自动补执行。检查配置后可通过现有 `resume` 或 `trigger` 接口继续使用。邮箱监听适用相同规则。
+- **插件**：归档时停用并暂停依赖任务，已有任务使用的固定版本保留；恢复后仍为停用，需要手动启用。仍被任务、运行或执行快照引用的插件不能永久删除。
+- **会话**：归档不停止 QQ 通道，也不撤销联系人授权。归档会话收到新消息后自动恢复到普通列表，继续使用原会话上下文。永久删除仍被任务引用的会话会失败，需要先更换通知会话或清理依赖任务。
+- **人格、模型与凭证**：默认人格及仍被会话、任务、QQ 绑定、插件或执行快照等引用的相应资源受到保护；需根据失败原因解除依赖后再操作。归档也不会绕过凭证引用检查。
+- **记录与文件**：正在执行、排队或等待投递的记录不能归档或永久删除。文件永久删除还会检查引用和执行状态；被拒绝的项目保留原记录。恢复会校验必要关联资源，缺失或仍处于归档状态的依赖可能阻止恢复。
+
+旧的 `DELETE /api/configs/{id}` 和 `DELETE /api/personas/{id}` 现在等价于对应资源的单项 `Archive`，成功仍返回 `{"ok":true}`。新客户端统一使用 `/api/lifecycle`，永久删除必须先归档，再提交 `action: 3`。
 
 ## 模型配置
 

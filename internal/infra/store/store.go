@@ -99,9 +99,19 @@ func (s *Postgres) Put(ctx context.Context, kind, id string, v any) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO records(kind,id,data) VALUES($1,$2,$3)
-	ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data, updated_at=now()`, kind, id, b)
-	return err
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollbackRecordTransaction(ctx, tx)
+	if err := guardRecordWrite(ctx, tx, kind, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO records(kind,id,data) VALUES($1,$2,$3)
+	ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data, updated_at=now()`, kind, id, b); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 func (s *Postgres) Get(ctx context.Context, kind, id string, v any) error {
 	var b []byte
@@ -173,8 +183,18 @@ func (s *Postgres) Append(ctx context.Context, e EventRecord) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, "INSERT INTO run_events(run_id,type,data,created_at) VALUES($1,$2,$3,$4)", e.RunID, e.Type, b, e.Time)
-	return err
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollbackRecordTransaction(ctx, tx)
+	if err := guardRecordWrite(ctx, tx, "run", e.RunID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO run_events(run_id,type,data,created_at) VALUES($1,$2,$3,$4)", e.RunID, e.Type, b, e.Time); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 func (s *Postgres) Events(ctx context.Context, id string, after int64) ([]EventRecord, error) {
 	rows, err := s.pool.Query(ctx, "SELECT sequence,type,data,created_at FROM run_events WHERE run_id=$1 AND sequence>$2 ORDER BY sequence LIMIT 500", id, after)
@@ -201,10 +221,11 @@ func (s *Postgres) Close()                         { s.locks.Close(); s.pool.Clo
 
 // Memory is an explicit test dependency; production always uses PostgreSQL.
 type Memory struct {
-	mu     sync.Mutex
-	data   map[string]map[string]json.RawMessage
-	events []EventRecord
-	locks  map[string]chan struct{}
+	mu            sync.Mutex
+	data          map[string]map[string]json.RawMessage
+	events        []EventRecord
+	eventSequence int64
+	locks         map[string]chan struct{}
 }
 
 func NewMemory() *Memory {
@@ -217,6 +238,9 @@ func (s *Memory) Put(_ context.Context, k, id string, v any) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, purged := s.data[PurgedRecordKind][PurgeKey(k, id)]; purged {
+		return ErrPurgedRecord
+	}
 	if s.data[k] == nil {
 		s.data[k] = map[string]json.RawMessage{}
 	}
@@ -270,7 +294,11 @@ func (s *Memory) Lock(ctx context.Context, key string) (func(), error) {
 func (s *Memory) Append(_ context.Context, e EventRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e.Sequence = int64(len(s.events) + 1)
+	if _, purged := s.data[PurgedRecordKind][PurgeKey("run", e.RunID)]; purged {
+		return ErrPurgedRecord
+	}
+	s.eventSequence++
+	e.Sequence = s.eventSequence
 	s.events = append(s.events, e)
 	return nil
 }

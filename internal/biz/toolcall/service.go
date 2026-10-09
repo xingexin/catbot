@@ -11,6 +11,8 @@ import (
 	"github.com/xingexin/catbot/internal/domain/agent"
 	artifactdomain "github.com/xingexin/catbot/internal/domain/artifact"
 	"github.com/xingexin/catbot/internal/domain/conversation"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepository "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	plugindomain "github.com/xingexin/catbot/internal/domain/plugin"
 	taskentity "github.com/xingexin/catbot/internal/domain/task/entity"
 	"github.com/xingexin/catbot/internal/infra/store"
@@ -129,6 +131,9 @@ func (a *Service) Call(ctx context.Context, runID, name string, args map[string]
 		if !ok {
 			return nil, errors.New("plugin version not pinned")
 		}
+		if err := lifecycleRepository.OwnCaches(ctx, a.Store, lifecycleRepository.CacheOwner{Resource: lifecycle.ResourceRun, RecordID: runID}, store.RecordRef{Kind: lifecycleRepository.CacheOperationStorageKind, ID: opID}); err != nil {
+			return nil, err
+		}
 		return a.Plugins.CallPinned(ctx, key, parts[1], args, opID)
 	}
 	if source.ChannelRoom != "" {
@@ -149,13 +154,29 @@ func (a *Service) Call(ctx context.Context, runID, name string, args map[string]
 		sum := sha256.Sum256(b)
 		opID = "group-" + hex.EncodeToString(sum[:])
 	}
+	cache := name == "system__task_create" || name == "system__task_update" || name == "system__task_control"
+	if cache {
+		if err := lifecycleRepository.OwnCaches(ctx, a.Store, lifecycleRepository.CacheOwner{Resource: lifecycle.ResourceRun, RecordID: runID}, store.RecordRef{Kind: lifecycleRepository.CacheResultStorageKind, ID: opID}, store.RecordRef{Kind: lifecycleRepository.CacheStartedStorageKind, ID: opID}); err != nil {
+			return nil, err
+		}
+	}
 	unlock, err := a.Store.Lock(ctx, "builtin:"+opID)
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
 	// Read-only tools intentionally observe fresh state on each invocation.
-	cache := name == "system__task_create" || name == "system__task_update" || name == "system__task_control"
+	if cache {
+		for _, kind := range []string{lifecycleRepository.CacheResultStorageKind, lifecycleRepository.CacheStartedStorageKind} {
+			gone, err := store.Purged(ctx, a.Store, kind, opID)
+			if err != nil {
+				return nil, err
+			}
+			if gone {
+				return nil, store.ErrPurgedRecord
+			}
+		}
+	}
 	var value any
 	if cache {
 		if err := a.Store.Get(ctx, "tool-result", opID, &value); err == nil {
@@ -212,7 +233,7 @@ func (a *Service) Call(ctx context.Context, runID, name string, args map[string]
 		}
 	case "system__task_list":
 		var tasks []taskentity.Task
-		tasks, err = store.All[taskentity.Task](ctx, a.Store, "task")
+		tasks, err = activeToolRecords(ctx, a.Store, lifecycle.ResourceTask, func(task taskentity.Task) string { return task.ID })
 		if err == nil && source.ChannelRoom != "" {
 			tasks = slices.DeleteFunc(tasks, func(task taskentity.Task) bool { return task.SessionID != source.ID })
 		}
@@ -254,7 +275,7 @@ func (a *Service) Call(ctx context.Context, runID, name string, args map[string]
 			value, err = a.Tasks.ControlTaskWithOperation(ctx, id, action, opID)
 		}
 	case "system__artifact_list":
-		value, err = store.All[artifactdomain.Artifact](ctx, a.Store, "artifact")
+		value, err = activeToolRecords(ctx, a.Store, lifecycle.ResourceArtifact, func(artifact artifactdomain.Artifact) string { return artifact.ID })
 	case "system__artifact_read":
 		id, _ := args["id"].(string)
 		var artifact artifactdomain.Artifact
@@ -272,4 +293,24 @@ func (a *Service) Call(ctx context.Context, runID, name string, args map[string]
 		}
 	}
 	return value, nil
+}
+
+// Read-only lists use the same archive identity boundary as the management API.
+// An index read failure must fail the tool rather than expose hidden records.
+func activeToolRecords[T any](ctx context.Context, s store.Store, resource lifecycle.Resource, recordID func(T) string) ([]T, error) {
+	records, err := store.All[T](ctx, s, resource.StorageKind())
+	if err != nil {
+		return nil, err
+	}
+	active := make([]T, 0, len(records))
+	for _, record := range records {
+		archived, err := lifecycleRepository.Archived(ctx, s, resource, recordID(record))
+		if err != nil {
+			return nil, err
+		}
+		if !archived {
+			active = append(active, record)
+		}
+	}
+	return active, nil
 }

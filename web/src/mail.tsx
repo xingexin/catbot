@@ -12,10 +12,11 @@ import {
   Popconfirm,
   Select,
   Space,
-  Table,
   Tag,
 } from "antd";
 import { api } from "./api";
+import { Resource } from "./lifecycle";
+import { LifecycleTable } from "./lifecycle-ui";
 import type { Row } from "./catbot";
 
 const permissionOptions = [
@@ -117,6 +118,9 @@ export function MailSettings({
   const history = executions
     .filter((run) => watchIds.has(run.taskId))
     .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+  useEffect(() => {
+    if (editing && !tasks.some((task) => task.id === editing.id)) resetWatch();
+  }, [tasks, editing]);
   const selectedSession = Form.useWatch("sessionId", watchForm);
   const selected = sessions.find((session) => session.id === selectedSession);
   async function action(
@@ -492,7 +496,10 @@ export function MailSettings({
           </Button>
         }
       >
-        <Table
+        <LifecycleTable
+          key={Resource.Tasks}
+          resource={Resource.Tasks}
+          onRefresh={onRefresh}
           rowKey="id"
           dataSource={watchers}
           pagination={{ pageSize: 5, hideOnSinglePage: true }}
@@ -644,7 +651,10 @@ export function MailSettings({
         />
       </Card>
       <Card title="最近邮箱检查记录">
-        <Table
+        <LifecycleTable
+          key={Resource.Executions}
+          resource={Resource.Executions}
+          onRefresh={onRefresh}
           rowKey="id"
           size="small"
           dataSource={history.slice(0, 20)}

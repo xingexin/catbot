@@ -1,8 +1,11 @@
 package httptransport
 
 import (
+	"errors"
+	lifecycleBiz "github.com/xingexin/catbot/internal/biz/lifecycle"
 	"github.com/xingexin/catbot/internal/biz/system"
 	"github.com/xingexin/catbot/internal/domain/agent"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
 	"github.com/xingexin/catbot/internal/domain/persona"
 	"net/http"
 )
@@ -55,7 +58,18 @@ func (s *Server) savePersona(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) deleteReferenced(kind string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		err := s.services.System.DeleteReferenced(r.Context(), kind, r.PathValue("id"))
+		if s.services.Lifecycle == nil {
+			JSON(w, 503, map[string]string{"error": "归档服务不可用"})
+			return
+		}
+		resource, err := lifecycle.ParseResourceName(kind)
+		if err == nil {
+			var result lifecycleBiz.Result
+			result, err = s.services.Lifecycle.Batch(r.Context(), lifecycleBiz.Request{Resource: resource, Action: lifecycle.ActionArchive, IDs: []string{r.PathValue("id")}})
+			if err == nil && len(result.Failed) > 0 {
+				err = errors.New(result.Failed[0].Error)
+			}
+		}
 		respond(w, 200, map[string]bool{"ok": true}, err)
 	}
 }

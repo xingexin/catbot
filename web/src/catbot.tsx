@@ -18,7 +18,6 @@ import {
   Space,
   Spin,
   Switch,
-  Table,
   Tag,
   Upload,
 } from "antd";
@@ -38,6 +37,7 @@ import {
   KeyOutlined,
   BellOutlined,
   ArrowRightOutlined,
+  InboxOutlined,
 } from "@ant-design/icons";
 import { api, downloadJSON, parseJSON, pretty } from "./api";
 import { Editor } from "./editor";
@@ -45,6 +45,14 @@ import { QQConnections } from "./qq";
 import { ModelConnections } from "./models";
 import { MailSettings } from "./mail";
 import { CatMark, Brand } from "./brand";
+import { Archives, type ArchiveRecord } from "./archives";
+import { LifecycleAction, Resource, lifecycleItems } from "./lifecycle";
+import {
+  LifecycleTable,
+  LifecycleActions,
+  LifecycleFeedback,
+  useLifecycleSelection,
+} from "./lifecycle-ui";
 const { TextArea } = Input;
 export type Row = Record<string, any>;
 const pages = [
@@ -56,6 +64,7 @@ const pages = [
   { key: "plugins", icon: <AppstoreOutlined />, label: "插件" },
   { key: "configs", icon: <ApiOutlined />, label: "模型配置" },
   { key: "runs", icon: <HistoryOutlined />, label: "运行记录" },
+  { key: "archives", icon: <InboxOutlined />, label: "归档栏" },
   { key: "settings", icon: <SettingOutlined />, label: "系统与凭证" },
 ];
 const descriptions: Record<string, string> = {
@@ -67,6 +76,7 @@ const descriptions: Record<string, string> = {
   plugins: "按需接入，让 catbot 多会一点。",
   configs: "选择 Agent SDK，或通过 Key 与 Base URL 直连模型。",
   runs: "检查模型调用、工具结果与后台任务状态。",
+  archives: "恢复归档内容，或永久删除不再需要的记录。",
   settings: "接入模型与 Agent SDK，管理 QQ 连接和服务凭证。",
 };
 const statusColor: Record<string, string> = {
@@ -104,6 +114,8 @@ export function Catbot() {
     [events, setEvents] = useState<Row[]>([]),
     [stream, setStream] = useState("");
   const source = useRef<EventSource | null>(null);
+  const [selectingSessions, setSelectingSessions] = useState(false);
+  const previousSessionIDs = useRef(new Set<string>());
   const end = useRef<HTMLDivElement>(null);
   const rows = (name: string) => data[name] ?? [];
   const session = rows("sessions").find((s) => s.id === sessionId);
@@ -129,7 +141,46 @@ export function Catbot() {
     setStream("");
     setEvents([]);
     source.current?.close();
+    source.current = null;
   }
+  const visibleSessions = rows("sessions").filter(
+    (item) => item.channel !== "task",
+  );
+  const sessionSelection = useLifecycleSelection(
+    lifecycleItems(Resource.Sessions, visibleSessions),
+    refresh,
+    (ids) => {
+      if (ids.includes(sessionId)) {
+        selectSession("");
+        setInput("");
+      }
+    },
+  );
+  const configSelection = useLifecycleSelection(
+    lifecycleItems(Resource.Configs, rows("configs")),
+    refresh,
+  );
+  const personaSelection = useLifecycleSelection(
+    lifecycleItems(Resource.Personas, rows("personas")),
+    refresh,
+  );
+  const pluginSelection = useLifecycleSelection(
+    lifecycleItems(Resource.Plugins, rows("plugins")),
+    refresh,
+  );
+  useEffect(() => {
+    if (
+      sessionId &&
+      previousSessionIDs.current.has(sessionId) &&
+      !rows("sessions").some((item) => item.id === sessionId)
+    ) {
+      selectSession("");
+      setInput("");
+    }
+    previousSessionIDs.current = new Set(
+      rows("sessions").map((item) => item.id),
+    );
+  }, [data.sessions, sessionId]);
   const active = run?.status === "running" || run?.status === "queued";
   const suggestedConfigId =
     session?.configId ??
@@ -151,6 +202,7 @@ export function Catbot() {
         "notifications",
         "deliveries",
         "model-calls",
+        "archives",
       ];
       const values = await Promise.all(names.map((n) => api("/" + n)));
       setData(Object.fromEntries(names.map((n, i) => [n, values[i] ?? []])));
@@ -317,6 +369,7 @@ export function Catbot() {
     const s = new EventSource("/api/runs/" + value.id + "/events");
     source.current = s;
     s.onmessage = (event) => {
+      if (source.current !== s) return;
       const item = JSON.parse(event.data);
       setEvents((old) => [...old.slice(-299), item]);
       if (item.type === "text.delta")
@@ -334,9 +387,11 @@ export function Catbot() {
       }
     };
     s.onerror = () => {
+      if (source.current !== s) return;
       s.close();
       api("/runs/" + value.id)
         .then((current) => {
+          if (source.current !== s) return;
           setRun(current);
           setStream(current.result ?? "");
           void refresh();
@@ -475,7 +530,11 @@ export function Catbot() {
   if (page === "chat")
     content = (
       <div className="chat-layout">
-        <aside className="conversation-list">
+        <aside
+          className={
+            "conversation-list" + (selectingSessions ? " selection-mode" : "")
+          }
+        >
           <Button
             block
             icon={<PlusOutlined />}
@@ -508,23 +567,57 @@ export function Catbot() {
                 }))}
             />
           </div>
-          <div className="list-heading">
-            最近会话{" "}
-            <span>
-              {rows("sessions").filter((s) => s.channel !== "task").length}
-            </span>
+          <div className="list-heading session-list-heading">
+            <span>最近会话 · {visibleSessions.length}</span>
+            <div className="session-selection-actions">
+              <Button
+                type="text"
+                size="small"
+                disabled={sessionSelection.busy}
+                onClick={() => {
+                  sessionSelection.clear();
+                  setSelectingSessions(!selectingSessions);
+                }}
+              >
+                {selectingSessions ? "退出多选" : "批量管理"}
+              </Button>
+              <LifecycleActions selection={sessionSelection} />
+            </div>
           </div>
-          {rows("sessions")
-            .filter((s) => s.channel !== "task")
-            .map((s) => (
+          <LifecycleFeedback selection={sessionSelection} />
+          {visibleSessions.map((s) => (
+            <div
+              className={
+                "session-row" +
+                (selectingSessions && sessionSelection.checked(s.id)
+                  ? " is-selected"
+                  : "")
+              }
+              key={s.id}
+            >
+              {selectingSessions && (
+                <Checkbox
+                  aria-label={"选择对话 " + (s.title || "未命名会话")}
+                  checked={sessionSelection.checked(s.id)}
+                  disabled={sessionSelection.busy}
+                  onChange={() => sessionSelection.toggle(s.id)}
+                />
+              )}
               <button
                 className={
                   "session-item " + (s.id === sessionId ? "selected" : "")
                 }
                 key={s.id}
                 aria-current={s.id === sessionId ? "true" : undefined}
+                aria-pressed={
+                  selectingSessions ? sessionSelection.checked(s.id) : undefined
+                }
                 title={s.title || "未命名会话"}
-                onClick={() => selectSession(s.id)}
+                onClick={() =>
+                  selectingSessions
+                    ? sessionSelection.toggle(s.id)
+                    : selectSession(s.id)
+                }
               >
                 <MessageOutlined />
                 <span>
@@ -544,7 +637,8 @@ export function Catbot() {
                   </small>
                 </span>
               </button>
-            ))}
+            </div>
+          ))}
         </aside>
         <section className="chat-panel">
           {!session ? (
@@ -828,20 +922,34 @@ export function Catbot() {
       <>
         <div className="toolbar">
           <span>SDK 与 API 使用相同的人格和业务工具</span>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => open("config")}
-          >
-            添加配置
-          </Button>
+          <Space wrap>
+            <LifecycleActions selection={configSelection} />
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => open("config")}
+            >
+              添加配置
+            </Button>
+          </Space>
         </div>
+        <LifecycleFeedback selection={configSelection} />
         <div className="cards">
           {rows("configs").map((c) => (
             <Card
               key={c.id}
+              className={
+                "selection-card" +
+                (configSelection.checked(c.id) ? " is-selected" : "")
+              }
               title={
                 <Space>
+                  <Checkbox
+                    aria-label={"选择" + (c.name || c.manifest?.name)}
+                    checked={configSelection.checked(c.id)}
+                    disabled={configSelection.busy}
+                    onChange={() => configSelection.toggle(c.id)}
+                  />
                   <ApiOutlined />
                   {c.name}
                 </Space>
@@ -871,16 +979,18 @@ export function Catbot() {
                 >
                   连接检查
                 </Button>
-                <Popconfirm
-                  title="删除此配置？"
-                  onConfirm={() =>
-                    act(() => api("/configs/" + c.id, undefined, "DELETE"))
+                <Button
+                  type="text"
+                  disabled={configSelection.busy}
+                  onClick={() =>
+                    configSelection.confirm(
+                      LifecycleAction.Archive,
+                      lifecycleItems(Resource.Configs, [c]),
+                    )
                   }
                 >
-                  <Button danger type="text">
-                    删除
-                  </Button>
-                </Popconfirm>
+                  归档
+                </Button>
               </div>
             </Card>
           ))}
@@ -895,7 +1005,8 @@ export function Catbot() {
       <>
         <div className="toolbar">
           <span>人格更新会在下一次执行生效</span>
-          <Space>
+          <Space wrap>
+            <LifecycleActions selection={personaSelection} />
             <Upload
               accept=".json"
               showUploadList={false}
@@ -912,12 +1023,23 @@ export function Catbot() {
             </Button>
           </Space>
         </div>
+        <LifecycleFeedback selection={personaSelection} />
         <div className="cards">
           {rows("personas").map((p) => (
             <Card
               key={p.id}
+              className={
+                "selection-card" +
+                (personaSelection.checked(p.id) ? " is-selected" : "")
+              }
               title={
                 <Space>
+                  <Checkbox
+                    aria-label={"选择" + (p.name || p.manifest?.name)}
+                    checked={personaSelection.checked(p.id)}
+                    disabled={personaSelection.busy}
+                    onChange={() => personaSelection.toggle(p.id)}
+                  />
                   <span className="persona-avatar">{p.name.slice(0, 1)}</span>
                   {p.name}
                 </Space>
@@ -957,16 +1079,18 @@ export function Catbot() {
                 >
                   导出
                 </Button>
-                <Popconfirm
-                  title="删除此人格？"
-                  onConfirm={() =>
-                    act(() => api("/personas/" + p.id, undefined, "DELETE"))
+                <Button
+                  type="text"
+                  disabled={personaSelection.busy}
+                  onClick={() =>
+                    personaSelection.confirm(
+                      LifecycleAction.Archive,
+                      lifecycleItems(Resource.Personas, [p]),
+                    )
                   }
                 >
-                  <Button type="text" danger>
-                    删除
-                  </Button>
-                </Popconfirm>
+                  归档
+                </Button>
               </div>
             </Card>
           ))}
@@ -991,20 +1115,34 @@ export function Catbot() {
       <>
         <div className="toolbar">
           <span>插件包独立运行，通过 MCP 暴露工具</span>
-          <Button
-            icon={<PlusOutlined />}
-            type="primary"
-            onClick={() => open("register")}
-          >
-            注册 / 更新插件
-          </Button>
+          <Space wrap>
+            <LifecycleActions selection={pluginSelection} />
+            <Button
+              icon={<PlusOutlined />}
+              type="primary"
+              onClick={() => open("register")}
+            >
+              注册 / 更新插件
+            </Button>
+          </Space>
         </div>
+        <LifecycleFeedback selection={pluginSelection} />
         <div className="cards">
           {rows("plugins").map((p) => (
             <Card
               key={p.id}
+              className={
+                "selection-card" +
+                (pluginSelection.checked(p.id) ? " is-selected" : "")
+              }
               title={
                 <Space>
+                  <Checkbox
+                    aria-label={"选择" + (p.name || p.manifest?.name)}
+                    checked={pluginSelection.checked(p.id)}
+                    disabled={pluginSelection.busy}
+                    onChange={() => pluginSelection.toggle(p.id)}
+                  />
                   <AppstoreOutlined />
                   {p.manifest.name}
                 </Space>
@@ -1022,7 +1160,9 @@ export function Catbot() {
               }
             >
               <Tag>v{p.manifest.version}</Tag>
-              <Tag>{p.manifest.runtime === "binary" ? "原生程序" : "Node.js"}</Tag>
+              <Tag>
+                {p.manifest.runtime === "binary" ? "原生程序" : "Node.js"}
+              </Tag>
               <p className="muted">{p.manifest.description}</p>
               <Space wrap>
                 {p.manifest.tools.map((t: Row) => (
@@ -1093,7 +1233,10 @@ export function Catbot() {
             创建任务
           </Button>
         </div>
-        <Table
+        <LifecycleTable
+          key={Resource.Tasks}
+          resource={Resource.Tasks}
+          onRefresh={refresh}
           rowKey="id"
           dataSource={rows("tasks")}
           columns={[
@@ -1176,7 +1319,10 @@ export function Catbot() {
           expandable={{ expandedRowRender: (t) => <JSONView value={t} /> }}
         />
         <h3>最近执行</h3>
-        <Table
+        <LifecycleTable
+          key={Resource.Executions}
+          resource={Resource.Executions}
+          onRefresh={refresh}
           rowKey="id"
           size="small"
           dataSource={rows("executions")}
@@ -1208,7 +1354,10 @@ export function Catbot() {
             </Button>
           </Upload>
         </div>
-        <Table
+        <LifecycleTable
+          key={Resource.Artifacts}
+          resource={Resource.Artifacts}
+          onRefresh={refresh}
           rowKey="id"
           dataSource={rows("artifacts")}
           columns={[
@@ -1304,7 +1453,10 @@ export function Catbot() {
   else if (page === "runs")
     content = (
       <>
-        <Table
+        <LifecycleTable
+          key={Resource.Runs}
+          resource={Resource.Runs}
+          onRefresh={refresh}
           rowKey="id"
           dataSource={rows("runs")}
           columns={recordColumns([
@@ -1352,7 +1504,10 @@ export function Catbot() {
         <p className="muted">
           记录插件的生成与转写调用。用量仅显示服务返回的数据，不代表完整成本；中断或未返回用量的调用不会推算为零。
         </p>
-        <Table
+        <LifecycleTable
+          key={Resource.ModelCalls}
+          resource={Resource.ModelCalls}
+          onRefresh={refresh}
           rowKey="id"
           size="small"
           dataSource={rows("model-calls")}
@@ -1403,7 +1558,10 @@ export function Catbot() {
           ])}
         />
         <h3>任务通知</h3>
-        <Table
+        <LifecycleTable
+          key={Resource.Notifications}
+          resource={Resource.Notifications}
+          onRefresh={refresh}
           rowKey="id"
           size="small"
           dataSource={rows("notifications")}
@@ -1431,13 +1589,23 @@ export function Catbot() {
           ])}
         />
         <h3>QQ 投递记录</h3>
-        <Table
+        <LifecycleTable
+          key={Resource.Deliveries}
+          resource={Resource.Deliveries}
+          onRefresh={refresh}
           rowKey="id"
           size="small"
           dataSource={rows("deliveries")}
           columns={recordColumns()}
         />
       </>
+    );
+  else if (page === "archives")
+    content = (
+      <Archives
+        records={rows("archives") as ArchiveRecord[]}
+        onRefresh={refresh}
+      />
     );
   else
     content = (
@@ -1454,9 +1622,7 @@ export function Catbot() {
               "检查完成",
             )
           }
-          onDelete={(config) =>
-            void act(() => api("/configs/" + config.id, undefined, "DELETE"))
-          }
+          onRefresh={refresh}
         />
         <div className="cards service-status">
           <Card title="服务状态">
@@ -1521,7 +1687,10 @@ export function Catbot() {
           </h3>
           <Button onClick={() => open("secret")}>添加凭证</Button>
         </div>
-        <Table
+        <LifecycleTable
+          key={Resource.Secrets}
+          resource={Resource.Secrets}
+          onRefresh={refresh}
           rowKey="id"
           dataSource={rows("secrets")}
           columns={[

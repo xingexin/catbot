@@ -15,6 +15,7 @@ import (
 	agentbiz "github.com/xingexin/catbot/internal/biz/agent"
 	artifactbiz "github.com/xingexin/catbot/internal/biz/artifact"
 	conversationbiz "github.com/xingexin/catbot/internal/biz/conversation"
+	lifecyclebiz "github.com/xingexin/catbot/internal/biz/lifecycle"
 	mailbiz "github.com/xingexin/catbot/internal/biz/mail"
 	messagingbiz "github.com/xingexin/catbot/internal/biz/messaging"
 	personabiz "github.com/xingexin/catbot/internal/biz/persona"
@@ -50,6 +51,7 @@ func newFixture(t *testing.T) fixture {
 		t.Fatal(err)
 	}
 	services := Services{
+		Lifecycle:     &lifecyclebiz.Service{Store: state, Files: files},
 		System:        &systembiz.Service{Store: state, Vault: secrets, Options: options},
 		Agent:         &agentbiz.Service{Store: state, Vault: secrets},
 		Personas:      &personabiz.Service{Store: state},

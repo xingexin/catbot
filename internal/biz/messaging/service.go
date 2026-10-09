@@ -10,6 +10,8 @@ import (
 	"github.com/xingexin/catbot/internal/domain/agent"
 	"github.com/xingexin/catbot/internal/domain/conversation"
 	convrepo "github.com/xingexin/catbot/internal/domain/conversation/repository"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepo "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	message "github.com/xingexin/catbot/internal/domain/messaging"
 	"github.com/xingexin/catbot/internal/domain/persona"
 	taskentity "github.com/xingexin/catbot/internal/domain/task/entity"
@@ -95,53 +97,91 @@ func (a *Service) HandleIncoming(ctx context.Context, in message.InboundMessage)
 	sessionID := "qq-" + in.Route + "-" + hex.EncodeToString(sum[:16])
 	sum = sha256.Sum256([]byte(identity + ":" + in.MessageID))
 	requestID := "qq-" + hex.EncodeToString(sum[:16])
+	// A late platform callback must not recreate a permanently removed turn.
+	if gone, err := store.Purged(ctx, a.Store, "run", "run-"+requestID); err != nil {
+		return err
+	} else if gone {
+		return nil
+	}
 	// Serialize duplicate callbacks without holding the conversation execution lock.
 	unlock, err := a.Store.Lock(ctx, "qq-incoming:"+sessionID)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	var session conversation.Session
-	err = convrepo.New(a.Store).GetSession(ctx, sessionID, &session)
-	newSession := errors.Is(err, store.ErrNotFound)
-	if err != nil && !newSession {
-		return err
-	}
-	if newSession {
-		title := channel.Title + " · " + in.Peer
+	err = func() error {
+		metaUnlock, err := a.Store.Lock(ctx, "session-meta:"+sessionID)
+		if err != nil {
+			return err
+		}
+		defer metaUnlock()
+		referenceUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+		if err != nil {
+			return err
+		}
+		defer referenceUnlock()
+		if gone, err := store.Purged(ctx, a.Store, "run", "run-"+requestID); err != nil {
+			return err
+		} else if gone {
+			return lifecycleRepo.ErrPurged
+		}
+		var session conversation.Session
+		err = convrepo.New(a.Store).GetSession(ctx, sessionID, &session)
+		newSession := errors.Is(err, store.ErrNotFound)
+		if err != nil && !newSession {
+			return err
+		}
+		if newSession {
+			for resource, id := range map[lifecycle.Resource]string{lifecycle.ResourceConfig: binding.ConfigID, lifecycle.ResourcePersona: personaID} {
+				if err := lifecycleRepo.RequireActive(ctx, a.Store, resource, id); err != nil {
+					return err
+				}
+			}
+			title := channel.Title + " · " + in.Peer
+			if in.RoomID != "" {
+				title = channel.Title + " · 群 " + in.RoomID + " · " + in.Peer
+			}
+			session = conversation.Session{ID: sessionID, Title: title, Channel: "qq",
+				ChannelProvider: in.Route, ChannelAccount: in.Account, ChannelRoom: in.RoomID, Recipient: in.Peer,
+				PersonaID: personaID, ConfigID: binding.ConfigID, Messages: []agent.Message{}, Native: map[string]string{}}
+		}
 		if in.RoomID != "" {
-			title = channel.Title + " · 群 " + in.RoomID + " · " + in.Peer
+			var persona persona.Persona
+			if session.PersonaID == "" {
+				return errors.New("select a group persona with an explicit tool list first")
+			}
+			if err := a.Store.Get(ctx, "persona", session.PersonaID, &persona); err != nil {
+				return err
+			}
+			if persona.Tools == nil {
+				return errors.New("group persona must have an explicit tool list")
+			}
 		}
-		session = conversation.Session{ID: sessionID, Title: title, Channel: "qq",
-			ChannelProvider: in.Route, ChannelAccount: in.Account, ChannelRoom: in.RoomID, Recipient: in.Peer,
-			PersonaID: personaID, ConfigID: binding.ConfigID, Messages: []agent.Message{}, Native: map[string]string{}}
-	}
-	if in.RoomID != "" {
-		var persona persona.Persona
-		if session.PersonaID == "" {
-			return errors.New("select a group persona with an explicit tool list first")
+		if newSession {
+			if err := convrepo.New(a.Store).SaveSession(ctx, session); err != nil {
+				return err
+			}
 		}
-		if err := a.Store.Get(ctx, "persona", session.PersonaID, &persona); err != nil {
+		var receipt message.ReplyReference
+		err = a.Store.Get(ctx, "qq-receipt", "run-"+requestID, &receipt)
+		if errors.Is(err, store.ErrNotFound) {
+			err = a.Store.Put(ctx, "qq-receipt", "run-"+requestID, message.ReplyReference{MessageID: in.MessageID, ReceivedAt: in.ReceivedAt})
+		}
+		if err != nil {
 			return err
 		}
-		if persona.Tools == nil {
-			return errors.New("group persona must have an explicit tool list")
-		}
-	}
-	if newSession {
-		if err := convrepo.New(a.Store).SaveSession(ctx, session); err != nil {
-			return err
-		}
-	}
-	var receipt message.ReplyReference
-	err = a.Store.Get(ctx, "qq-receipt", "run-"+requestID, &receipt)
-	if errors.Is(err, store.ErrNotFound) {
-		err = a.Store.Put(ctx, "qq-receipt", "run-"+requestID, message.ReplyReference{MessageID: in.MessageID, ReceivedAt: in.ReceivedAt})
+		return nil
+	}()
+	if errors.Is(err, lifecycleRepo.ErrPurged) || errors.Is(err, store.ErrPurgedRecord) {
+		return nil
 	}
 	if err != nil {
 		return err
 	}
 	_, err = a.Conversation.Submit(ctx, sessionID, strings.TrimSpace(in.Text), requestID)
+	if errors.Is(err, lifecycleRepo.ErrPurged) {
+		return nil
+	}
 	return err
 }
 
@@ -173,11 +213,21 @@ func (a *Service) DeliverNotification(ctx context.Context, in message.Notificati
 	if len(runes) > 1800 {
 		text = string(runes[:1800]) + "\n…完整结果请在 Web 查看。"
 	}
+	if gone, err := store.Purged(ctx, a.Store, "delivery", operationID); err != nil {
+		return err
+	} else if gone {
+		return lifecycleRepo.ErrPurged
+	}
 	unlock, err := a.Store.Lock(ctx, "delivery:"+operationID)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	if gone, err := store.Purged(ctx, a.Store, "delivery", operationID); err != nil {
+		return err
+	} else if gone {
+		return lifecycleRepo.ErrPurged
+	}
 	var old message.Delivery
 	if err := a.Store.Get(ctx, "delivery", operationID, &old); err == nil {
 		_, err := old.CheckReuse(sessionID)
@@ -188,7 +238,17 @@ func (a *Service) DeliverNotification(ctx context.Context, in message.Notificati
 	// Persist intent BEFORE contacting the platform. A crash cannot cause an
 	// automatic second send whose first remote outcome is unknown.
 	d := message.Delivery{ID: operationID, SessionID: sessionID, Provider: provider, Status: "uncertain", CreatedAt: time.Now().UTC()}
-	if err := a.Store.Put(ctx, "delivery", operationID, d); err != nil {
+	if err := func() error {
+		referenceUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+		if err != nil {
+			return err
+		}
+		defer referenceUnlock()
+		if err := convrepo.New(a.Store).GetSession(ctx, sessionID, &session); err != nil {
+			return err
+		}
+		return a.Store.Put(ctx, "delivery", operationID, d)
+	}(); err != nil {
 		return err
 	}
 	result := message.SendResult{Status: message.Failed}
@@ -238,6 +298,11 @@ func (a *Service) NotifyRecord(ctx context.Context, n message.Notification, retr
 		return err
 	}
 	defer unlock()
+	if gone, err := store.Purged(ctx, a.Store, "notification", n.ID); err != nil {
+		return err
+	} else if gone {
+		return lifecycleRepo.ErrPurged
+	}
 	var old message.Notification
 	if err := a.Store.Get(ctx, "notification", n.ID, &old); err == nil {
 		done, err := old.CheckDuplicate(n)
@@ -261,14 +326,22 @@ func (a *Service) NotifyRecord(ctx context.Context, n message.Notification, retr
 		return err
 	}
 	var s conversation.Session
-	if err := convrepo.New(a.Store).GetSession(ctx, n.SessionID, &s); err != nil {
-		return err
-	}
-	if err := a.notificationReplyReference(ctx, &n); err != nil {
-		return err
-	}
-	n.BeginAttempt(time.Now().UTC())
-	if err := a.Store.Put(ctx, "notification", n.ID, n); err != nil {
+	if err := func() error {
+		referenceUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+		if err != nil {
+			return err
+		}
+		defer referenceUnlock()
+		if err := convrepo.New(a.Store).GetSession(ctx, n.SessionID, &s); err != nil {
+			return err
+		}
+		if err := a.notificationReplyReference(ctx, &n); err != nil {
+			return err
+		}
+		n.BeginAttempt(time.Now().UTC())
+		return a.Store.Put(ctx, "notification", n.ID, n)
+
+	}(); err != nil {
 		return err
 	}
 	if s.Channel != "qq" {

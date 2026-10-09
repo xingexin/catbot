@@ -48,6 +48,17 @@ func (m *Manager) CallPinned(ctx context.Context, key, name string, args map[str
 		return nil, err
 	}
 	defer pluginUnlock()
+	purged, err := store.Purged(ctx, m.Store, "plugin", p.ID)
+	if err != nil {
+		return nil, err
+	}
+	if purged {
+		return nil, store.ErrPurgedRecord
+	}
+	// Purge may have removed a snapshot while this call waited for the lock.
+	if err := m.Store.Get(ctx, "plugin-version", key, &p); err != nil {
+		return nil, err
+	}
 	unlock, err := m.Store.Lock(ctx, "op:"+operationID)
 	if err != nil {
 		return nil, err

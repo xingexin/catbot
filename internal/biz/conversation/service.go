@@ -7,6 +7,8 @@ import (
 	"github.com/xingexin/catbot/internal/domain/agent"
 	"github.com/xingexin/catbot/internal/domain/conversation"
 	convrepo "github.com/xingexin/catbot/internal/domain/conversation/repository"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepo "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	"github.com/xingexin/catbot/internal/domain/persona"
 	personarepo "github.com/xingexin/catbot/internal/domain/persona/repository"
 	plugindomain "github.com/xingexin/catbot/internal/domain/plugin"
@@ -46,6 +48,16 @@ func (a *Service) Submit(ctx context.Context, sessionID, prompt, requestID strin
 		requestID = idgen.New()
 	}
 	id := "run-" + requestID
+	metaUnlock, err := a.Store.Lock(ctx, "session-meta:"+sessionID)
+	if err != nil {
+		return conversation.Run{}, err
+	}
+	defer metaUnlock()
+	if gone, err := store.Purged(ctx, a.Store, "run", id); err != nil {
+		return conversation.Run{}, err
+	} else if gone {
+		return conversation.Run{}, lifecycleRepo.ErrPurged
+	}
 	unlock, err := a.Store.Lock(ctx, "submit:"+id)
 	if err != nil {
 		return conversation.Run{}, err
@@ -60,6 +72,11 @@ func (a *Service) Submit(ctx context.Context, sessionID, prompt, requestID strin
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return existing, err
 	}
+	referencesUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return conversation.Run{}, err
+	}
+	defer referencesUnlock()
 	var session conversation.Session
 	if err := convrepo.New(a.Store).GetSession(ctx, sessionID, &session); err != nil {
 		return existing, err
@@ -74,6 +91,10 @@ func (a *Service) Submit(ctx context.Context, sessionID, prompt, requestID strin
 	}
 	versions, err := a.Plugins.Snapshots(ctx)
 	if err != nil {
+		return existing, err
+	}
+	// A new incoming message brings an archived conversation back to the inbox.
+	if err := lifecycleRepo.Unmark(ctx, a.Store, lifecycle.ResourceSession, sessionID); err != nil {
 		return existing, err
 	}
 	r := conversation.Run{ID: id, SessionID: sessionID, Prompt: prompt, Status: "queued", Config: config, Persona: persona, Versions: versions, CreatedAt: time.Now().UTC(), ReplyPending: session.Channel == "qq"}

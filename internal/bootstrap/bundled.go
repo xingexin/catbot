@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepo "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,8 +38,22 @@ func newerBundle(next, previous string) bool {
 // preserves configured credentials and grants; active runs retain frozen files.
 func (a *App) registerBundled(ctx context.Context) error {
 	for _, dir := range []string{"example", "mail", "video", "example-go"} {
+		archived, err := lifecycleRepo.Archived(ctx, a.Store, lifecycle.ResourcePlugin, dir)
+		if err != nil {
+			return err
+		}
+		if archived {
+			continue
+		}
+		purged, err := store.Purged(ctx, a.Store, "plugin", dir)
+		if err != nil {
+			return err
+		}
+		if purged {
+			continue
+		}
 		var old domain.Plugin
-		err := a.Store.Get(ctx, "plugin", dir, &old)
+		err = a.Store.Get(ctx, "plugin", dir, &old)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return err
 		}

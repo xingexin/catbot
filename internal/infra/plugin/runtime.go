@@ -172,3 +172,16 @@ func (r *Runtime) Close() {
 		delete(r.processes, key)
 	}
 }
+
+// CloseVersions releases the processes and in-memory credentials of purged snapshots.
+func (r *Runtime) CloseVersions(keys []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, key := range keys {
+		if p, ok := r.processes[key]; ok {
+			_ = p.session.Close()
+			_ = p.log.Close()
+			delete(r.processes, key)
+		}
+	}
+}

@@ -31,6 +31,12 @@ func (e *ExecutionHost) Begin(ctx context.Context, in taskentity.Input, id strin
 		return taskentity.Snapshot{}, err
 	}
 	defer unlock()
+	if err := requireExecutionActive(ctx, e.Store, id); err != nil {
+		return taskentity.Snapshot{}, err
+	}
+	if err := requireTaskActive(ctx, e.Store, in.TaskID); err != nil {
+		return taskentity.Snapshot{}, taskentity.NewExecutionError(err.Error(), "InactiveTask", err)
+	}
 	var prior taskentity.Snapshot
 	if err := e.Store.Get(ctx, "execution-snapshot", id, &prior); err == nil {
 		return prior, e.ensureExecution(ctx, prior, in, id)
@@ -80,6 +86,10 @@ func (e *ExecutionHost) Begin(ctx context.Context, in taskentity.Input, id strin
 }
 
 func (e *ExecutionHost) ensureExecution(ctx context.Context, snap taskentity.Snapshot, in taskentity.Input, id string) error {
+	if err := requireExecutionActive(ctx, e.Store, id); err != nil {
+		return err
+	}
+
 	current, err := taskrepository.New(e.Store).Execution(ctx, id)
 	if err == nil {
 		if current.Status == "skipped" || current.Status == "interrupted" {
@@ -141,6 +151,13 @@ func (e *ExecutionHost) checkOverlap(ctx context.Context, taskID, id string) err
 }
 
 func (e *ExecutionHost) ExecuteStep(ctx context.Context, in taskentity.StepInput) (any, error) {
+	if err := requireExecutionActive(ctx, e.Store, in.ExecutionID); err != nil {
+		return nil, err
+	}
+	if err := requireTaskActive(ctx, e.Store, in.Snapshot.Task.ID); err != nil {
+		return nil, taskentity.NewExecutionError(err.Error(), "InactiveTask", err)
+	}
+
 	resultID := in.ExecutionID + ":" + in.Step.ID
 	var prior any
 	if err := e.Store.Get(ctx, "step-result", resultID, &prior); err == nil {
@@ -209,6 +226,18 @@ func (e *ExecutionHost) hydrate(ctx context.Context, results map[string]any) (ma
 }
 
 func (e *ExecutionHost) Finish(ctx context.Context, snapshot taskentity.Snapshot, id, status, message string, result map[string]any) error {
+	unlock, err := taskrepository.New(e.Store).LockTask(ctx, snapshot.Task.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := requireExecutionActive(ctx, e.Store, id); err != nil {
+		return err
+	}
+	if err := requireTaskActive(ctx, e.Store, snapshot.Task.ID); err != nil {
+		return taskentity.NewExecutionError(err.Error(), "InactiveTask", err)
+	}
+
 	x, err := taskrepository.New(e.Store).Execution(ctx, id)
 	if err != nil {
 		return err
@@ -216,7 +245,7 @@ func (e *ExecutionHost) Finish(ctx context.Context, snapshot taskentity.Snapshot
 	// A retry may only need to repair the task status after the execution was
 	// saved. Do not reset a recorded notification failure or attempt it again.
 	if x.Status == "notification_failed" {
-		return e.finishOnceTask(ctx, snapshot.Task, x)
+		return e.finishOnceTaskLocked(ctx, snapshot.Task, x)
 	}
 	full, err := e.hydrate(ctx, result)
 	if err != nil {
@@ -250,18 +279,13 @@ func (e *ExecutionHost) Finish(ctx context.Context, snapshot taskentity.Snapshot
 			}
 		}
 	}
-	return e.finishOnceTask(ctx, snapshot.Task, x)
+	return e.finishOnceTaskLocked(ctx, snapshot.Task, x)
 }
 
-func (e *ExecutionHost) finishOnceTask(ctx context.Context, snapshot taskentity.Task, x taskentity.TaskExecution) error {
+func (e *ExecutionHost) finishOnceTaskLocked(ctx context.Context, snapshot taskentity.Task, x taskentity.TaskExecution) error {
 	if snapshot.Kind != "once" {
 		return nil
 	}
-	unlock, err := taskrepository.New(e.Store).LockTask(ctx, snapshot.ID)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	current, err := taskrepository.New(e.Store).Task(ctx, snapshot.ID)
 	if err != nil {
 		return err

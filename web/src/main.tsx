@@ -47,11 +47,17 @@ createRoot(document.getElementById("root")!).render(
             hoverBorderColor: "#cdaabd",
             activeOutlineColor: "#f6e7ee",
           },
+          Checkbox: {
+            colorPrimary: "#945c76",
+            colorPrimaryHover: "#78485f",
+          },
           Table: {
             headerBg: "#faf8fa",
             headerColor: "#746975",
             borderColor: "#eee9ec",
             rowHoverBg: "#fdf8fb",
+            rowSelectedBg: "#faecf2",
+            rowSelectedHoverBg: "#f5dce7",
           },
           Card: { headerFontSize: 15 },
           Modal: { titleFontSize: 19 },

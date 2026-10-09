@@ -13,6 +13,8 @@ import (
 
 	"github.com/xingexin/catbot/internal/domain/artifact"
 	"github.com/xingexin/catbot/internal/domain/conversation"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepository "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	"github.com/xingexin/catbot/internal/domain/messaging"
 	"github.com/xingexin/catbot/internal/domain/plugin"
 	taskentity "github.com/xingexin/catbot/internal/domain/task/entity"
@@ -64,6 +66,24 @@ func (s *Service) Get(ctx context.Context, p plugin.Plugin, key string) (any, er
 	return value, err
 }
 func (s *Service) Put(ctx context.Context, p plugin.Plugin, key string, value any) error {
+	unlock, err := s.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	purged, err := store.Purged(ctx, s.Store, "plugin", p.ID)
+	if err != nil {
+		return err
+	}
+	if purged {
+		return lifecycleRepository.ErrPurged
+	}
+	// Authentication may have loaded this snapshot before a concurrent purge.
+	// Archived/disabled snapshots remain valid for already started calls.
+	var current plugin.Plugin
+	if err := s.Store.Get(ctx, "plugin-version", plugin.SnapshotKey(p), &current); err != nil {
+		return err
+	}
 	return s.Store.Put(ctx, "plugin-data:"+p.ID, key, value)
 }
 func (s *Service) SaveResult(ctx context.Context, p plugin.Plugin, in ResultInput) (artifact.Artifact, error) {

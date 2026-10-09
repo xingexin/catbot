@@ -7,6 +7,7 @@ import (
 	"github.com/xingexin/catbot/internal/biz/agent"
 	"github.com/xingexin/catbot/internal/biz/artifact"
 	"github.com/xingexin/catbot/internal/biz/conversation"
+	"github.com/xingexin/catbot/internal/biz/lifecycle"
 	"github.com/xingexin/catbot/internal/biz/mail"
 	"github.com/xingexin/catbot/internal/biz/messaging"
 	"github.com/xingexin/catbot/internal/biz/persona"
@@ -17,6 +18,7 @@ import (
 
 // Services explicitly lists application dependencies; transport never owns state.
 type Services struct {
+	Lifecycle     *lifecycle.Service
 	Conversations *conversation.Service
 	Personas      *persona.Service
 	Agent         *agent.Service
@@ -52,6 +54,8 @@ func (s *Server) Handler() http.Handler {
 	root.Handle("/internal/", s.internal)
 	api := http.NewServeMux()
 	api.HandleFunc("POST /api/logout", s.logout)
+	api.HandleFunc("POST /api/lifecycle", s.lifecycle)
+	api.HandleFunc("GET /api/archives", s.archives)
 	api.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) { JSON(w, 200, map[string]string{"username": "admin"}) })
 	api.HandleFunc("GET /api/status", s.status)
 	api.HandleFunc("GET /api/qq", s.qqConnections)

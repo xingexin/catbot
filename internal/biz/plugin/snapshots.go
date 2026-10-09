@@ -2,7 +2,10 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"github.com/xingexin/catbot/internal/domain/agent"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepository "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	domainplugin "github.com/xingexin/catbot/internal/domain/plugin"
 	"github.com/xingexin/catbot/internal/infra/store"
 	"slices"
@@ -22,6 +25,12 @@ func (m *Manager) Snapshots(ctx context.Context) (map[string]string, error) {
 	for _, p := range ps {
 		if !p.Enabled {
 			continue
+		}
+		if err := lifecycleRepository.RequireActive(ctx, m.Store, lifecycle.ResourcePlugin, p.ID); err != nil {
+			if errors.Is(err, lifecycleRepository.ErrArchived) || errors.Is(err, lifecycleRepository.ErrPurged) {
+				continue
+			}
+			return nil, err
 		}
 		key := domainplugin.SnapshotKey(p)
 		if err := m.Store.Put(ctx, "plugin-version", key, p); err != nil {
@@ -57,6 +66,9 @@ func (m *Manager) Tools(ctx context.Context, versions map[string]string, allow [
 	return out, nil
 }
 func (m *Manager) Health(ctx context.Context, id string) error {
+	if err := lifecycleRepository.RequireActive(ctx, m.Store, lifecycle.ResourcePlugin, id); err != nil {
+		return err
+	}
 	var p domainplugin.Plugin
 	if err := m.Store.Get(ctx, "plugin", id, &p); err != nil {
 		return err

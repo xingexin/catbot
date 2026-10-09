@@ -5,6 +5,7 @@ import (
 	bizagent "github.com/xingexin/catbot/internal/biz/agent"
 	bizartifact "github.com/xingexin/catbot/internal/biz/artifact"
 	bizconversation "github.com/xingexin/catbot/internal/biz/conversation"
+	bizlifecycle "github.com/xingexin/catbot/internal/biz/lifecycle"
 	bizmail "github.com/xingexin/catbot/internal/biz/mail"
 	bizmessaging "github.com/xingexin/catbot/internal/biz/messaging"
 	bizpersona "github.com/xingexin/catbot/internal/biz/persona"
@@ -14,6 +15,7 @@ import (
 	biztoolcall "github.com/xingexin/catbot/internal/biz/toolcall"
 	"github.com/xingexin/catbot/internal/config"
 	"github.com/xingexin/catbot/internal/domain/agent"
+	lifecycle "github.com/xingexin/catbot/internal/domain/lifecycle"
 	"github.com/xingexin/catbot/internal/domain/task/entity"
 	"github.com/xingexin/catbot/internal/infra/agent/modelapi"
 	"github.com/xingexin/catbot/internal/infra/agent/sdkbridge"
@@ -28,6 +30,7 @@ import (
 
 // App owns the composed services and their lifecycle, not application use cases.
 type App struct {
+	Lifecycle    *bizlifecycle.Service
 	Store        store.Store
 	Options      config.Options
 	Vault        *vault.Vault
@@ -82,6 +85,7 @@ func New(s store.Store, o config.Options) (*App, error) {
 	a.Agents = &bizagent.Service{Store: s, Vault: v, Options: o}
 	a.Artifacts = &bizartifact.Service{Store: s, Files: filestore.Store{Root: o.DataDir}, MaxUploadMB: o.MaxUploadMB}
 	a.Mail = &bizmail.Service{Store: s, Tasks: a.Tasks, Plugins: a.Plugins, AuthorizeNotification: a.Messaging.AuthorizeNotification}
+	a.Lifecycle = &bizlifecycle.Service{Store: s, Files: a.Artifacts.Files, CheckBindings: a.Messaging.CheckBindingReference, Handlers: map[lifecycle.Resource]bizlifecycle.Handler{lifecycle.ResourceTask: a.Tasks, lifecycle.ResourcePlugin: a.Plugins}}
 	a.System = &bizsystem.Service{Store: s, Vault: v, Options: o, CheckBindings: a.Messaging.CheckBindingReference}
 	a.Steps = &biztask.StepRunner{Store: s, Plugins: a.Plugins, Agent: a.Conversation}
 	a.Execution = &biztask.ExecutionHost{Store: s, Host: taskHost{a.Steps, a.Messaging}}

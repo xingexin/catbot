@@ -2,10 +2,12 @@ package system
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepo "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	"github.com/xingexin/catbot/internal/infra/health"
 	"github.com/xingexin/catbot/internal/infra/idgen"
-	"github.com/xingexin/catbot/internal/infra/store"
 	"github.com/xingexin/catbot/internal/infra/vault"
 	"time"
 )
@@ -17,12 +19,16 @@ type CredentialInput struct {
 }
 
 func (a *Service) Credentials(ctx context.Context) ([]map[string]string, error) {
-	rows, err := store.All[vault.Record](ctx, a.Store, "secret")
+	raw, err := a.List(ctx, "secret")
 	if err != nil {
 		return nil, err
 	}
 	out := []map[string]string{}
-	for _, v := range rows {
+	for _, item := range raw {
+		var v vault.Record
+		if err := json.Unmarshal(item, &v); err != nil {
+			return nil, err
+		}
 		out = append(out, map[string]string{"id": v.ID, "name": v.Name})
 	}
 	return out, nil
@@ -31,8 +37,16 @@ func (a *Service) SaveCredential(ctx context.Context, in CredentialInput) (map[s
 	if in.Name == "" || in.Value == "" {
 		return nil, errors.New("name and value are required")
 	}
+	referencesUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return nil, err
+	}
+	defer referencesUnlock()
 	if in.ID == "" {
 		in.ID = idgen.New()
+	}
+	if err := lifecycleRepo.RequireActive(ctx, a.Store, lifecycle.ResourceSecret, in.ID); err != nil {
+		return nil, err
 	}
 	if err := a.Vault.Set(ctx, in.ID, in.Name, in.Value); err != nil {
 		return nil, err

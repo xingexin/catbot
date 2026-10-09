@@ -3,7 +3,10 @@ package plugin
 import (
 	"context"
 	"errors"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepository "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	domainplugin "github.com/xingexin/catbot/internal/domain/plugin"
+	"github.com/xingexin/catbot/internal/infra/store"
 )
 
 func (m *Manager) Register(ctx context.Context, dir string) (domainplugin.Plugin, error) {
@@ -20,6 +23,18 @@ func (m *Manager) Register(ctx context.Context, dir string) (domainplugin.Plugin
 		return domainplugin.Plugin{}, err
 	}
 	defer unlock()
+	referenceUnlock, err := m.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return domainplugin.Plugin{}, err
+	}
+	defer referenceUnlock()
+	archived, err := lifecycleRepository.Archived(ctx, m.Store, lifecycle.ResourcePlugin, manifest.ID)
+	if err != nil {
+		return domainplugin.Plugin{}, err
+	}
+	if archived {
+		return domainplugin.Plugin{}, lifecycleRepository.ErrArchived
+	}
 	frozen, err := m.packages.Freeze(ctx, full, manifest)
 	if err != nil {
 		return domainplugin.Plugin{}, err
@@ -34,6 +49,9 @@ func (m *Manager) Register(ctx context.Context, dir string) (domainplugin.Plugin
 		p.Secrets = old.Secrets
 		p.Grants = old.Grants
 		p.Enabled = old.Enabled
+	}
+	if err := m.Store.Delete(ctx, store.PurgedRecordKind, store.PurgeKey("plugin", p.ID)); err != nil {
+		return p, err
 	}
 	err = m.Store.Put(ctx, "plugin", p.ID, p)
 	return p, err

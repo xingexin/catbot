@@ -9,6 +9,8 @@ import (
 
 	"github.com/xingexin/catbot/internal/domain/agent"
 	"github.com/xingexin/catbot/internal/domain/conversation"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	cacheRepo "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	taskentity "github.com/xingexin/catbot/internal/domain/task/entity"
 	taskservice "github.com/xingexin/catbot/internal/domain/task/service"
 	"github.com/xingexin/catbot/internal/infra/store"
@@ -33,6 +35,12 @@ func (a *StepRunner) Step(ctx context.Context, in taskentity.StepInput) (any, er
 		return nil, err
 	}
 	defer unlock()
+	if err := requireExecutionActive(ctx, a.Store, in.ExecutionID); err != nil {
+		return nil, err
+	}
+	if err := requireTaskActive(ctx, a.Store, in.Snapshot.Task.ID); err != nil {
+		return nil, err
+	}
 	if in.Step.Kind == "tool" {
 		parts := strings.SplitN(in.Step.Tool, "__", 2)
 		if len(parts) != 2 {
@@ -46,6 +54,9 @@ func (a *StepRunner) Step(ctx context.Context, in taskentity.StepInput) (any, er
 		key := in.Snapshot.Task.Versions[parts[0]]
 		if key == "" {
 			return nil, errors.New("task plugin is not pinned")
+		}
+		if err := cacheRepo.OwnCaches(ctx, a.Store, cacheRepo.CacheOwner{Resource: lifecycle.ResourceExecution, RecordID: in.ExecutionID}, store.RecordRef{Kind: cacheRepo.CacheOperationStorageKind, ID: opID}); err != nil {
+			return nil, err
 		}
 		return a.Plugins.CallPinned(ctx, key, parts[1], args, opID)
 	}

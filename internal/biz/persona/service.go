@@ -2,6 +2,8 @@ package persona
 
 import (
 	"context"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepo "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	"github.com/xingexin/catbot/internal/domain/persona"
 	personarepo "github.com/xingexin/catbot/internal/domain/persona/repository"
 	"github.com/xingexin/catbot/internal/infra/idgen"
@@ -19,8 +21,16 @@ func (a *Service) Save(ctx context.Context, p persona.Persona) (persona.Persona,
 		return p, err
 	}
 	defer unlock()
+	referencesUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return p, err
+	}
+	defer referencesUnlock()
 	if p.ID == "" {
 		p.ID = idgen.New()
+	}
+	if err := lifecycleRepo.RequireActive(ctx, a.Store, lifecycle.ResourcePersona, p.ID); err != nil {
+		return p, err
 	}
 	var old persona.Persona
 	if err := personarepo.New(a.Store).Get(ctx, p.ID, &old); err == nil {
@@ -55,6 +65,14 @@ func (a *Service) Bootstrap(ctx context.Context) error {
 	if len(ps) > 0 {
 		return nil
 	}
-	p := persona.Persona{ID: "secretary", Name: "小助理", Description: "清楚、可靠的个人秘书", SystemPrompt: "你是一位个人秘书。用简洁自然的中文沟通，记清用户要求，通过工具完成事务，诚实说明执行状态。", Examples: []persona.Example{}, Version: 1, Default: true}
+	id := "secretary"
+	purged, err := store.Purged(ctx, a.Store, "persona", id)
+	if err != nil {
+		return err
+	}
+	if purged {
+		id = idgen.New()
+	}
+	p := persona.Persona{ID: id, Name: "小助理", Description: "清楚、可靠的个人秘书", SystemPrompt: "你是一位个人秘书。用简洁自然的中文沟通，记清用户要求，通过工具完成事务，诚实说明执行状态。", Examples: []persona.Example{}, Version: 1, Default: true}
 	return personarepo.New(a.Store).Save(ctx, p)
 }

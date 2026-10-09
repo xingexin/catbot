@@ -16,5 +16,5 @@ func (a *App) internalHandler() http.Handler {
 	return internal
 }
 func (a *App) Handler() http.Handler {
-	return httptransport.New(httptransport.Services{Conversations: a.Conversation, Personas: a.Personas, Agent: a.Agents, Tasks: a.Tasks, Plugins: a.Plugins, Messaging: a.Messaging, Artifacts: a.Artifacts, Mail: a.Mail, System: a.System}, httptransport.Options{CookieSecure: a.Options.CookieSecure, MaxUploadMB: a.Options.MaxUploadMB}, a.internalHandler()).Handler()
+	return httptransport.New(httptransport.Services{Lifecycle: a.Lifecycle, Conversations: a.Conversation, Personas: a.Personas, Agent: a.Agents, Tasks: a.Tasks, Plugins: a.Plugins, Messaging: a.Messaging, Artifacts: a.Artifacts, Mail: a.Mail, System: a.System}, httptransport.Options{CookieSecure: a.Options.CookieSecure, MaxUploadMB: a.Options.MaxUploadMB}, a.internalHandler()).Handler()
 }

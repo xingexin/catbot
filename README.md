@@ -38,6 +38,8 @@ make help                   # 查看命令说明
 5. 在「邮箱监听」配置、测试并启用 IMAP，选择接收提醒的 QQ 或 Web 会话。
 6. 在「插件」配置视频能力；上传文件后创建后台解析任务。
 
+对话、任务、人格、插件、模型配置、文件与各类运行记录支持批量归档。左侧「归档」集中恢复或永久删除；任务恢复后保持暂停，插件恢复后保持停用。收到新消息时，对应的已归档会话自动恢复，归档不会停用 QQ。仍有依赖或活动执行的记录会保留并显示原因。
+
 部署目录与迁移说明见 [部署说明](deploy/README.md)。完整设置、通知失败处理和实际账号验收见 [日常使用指南](docs/daily-use.md)。
 
 **CodeBuddy iOA + `glm-5.3` 已完成真实流式对话、原生会话续接和示例插件调用联调（2026-09-30），OneBot QQ 群聊已完成真实收发、上下文和定时通知联调（2026-10-07）。** Claude、Codex、API 直连端点、真实邮箱与官方 QQ 仍需凭证联调。以 `[本地验收]` 或 `[浏览器验收]` 命名的配置连接确定性测试端点，不能作为真实模型能力或效果证明。详见 [验收报告](docs/acceptance.md)。
@@ -90,7 +92,7 @@ scripts/            开发工具与集成验收脚本
 deploy/             Docker、Compose、环境配置、Nginx 与部署脚本/测试
 ```
 
-本次目录迁移与验证记录见 [重构验收](docs/refactor-acceptance.md)。
+本次目录迁移与验证记录见 [重构验收](docs/refactor-acceptance.md)。长期开发约束见 [设计理念](docs/design-principles.md) 和根目录 [AGENTS.md](AGENTS.md)：领域规则与用例编排分开，有限业务分类统一采用固定编号的整型枚举。
 
 Go 插件可用 `node scripts/create-plugin.mjs notes-go --language go` 创建，再用 `make build-plugins` 编译；原有 TS 插件继续可用。Go 示例 `example-go` 构建后随服务启动登记，默认停用，可在管理端配置授权后启用。Docker 镜像会构建对应 Linux 平台的插件二进制，具体打包、授权和宿主接口见 [插件开发](docs/plugins.md)。
 

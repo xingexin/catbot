@@ -2,6 +2,9 @@ package plugin
 
 import (
 	"context"
+	"github.com/xingexin/catbot/internal/domain/agent"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepository "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	domainplugin "github.com/xingexin/catbot/internal/domain/plugin"
 	"github.com/xingexin/catbot/internal/infra/idgen"
 )
@@ -12,12 +15,30 @@ func (m *Manager) Configure(ctx context.Context, id string, cfg map[string]any, 
 		return domainplugin.Plugin{}, err
 	}
 	defer unlock()
+	referenceUnlock, err := m.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return domainplugin.Plugin{}, err
+	}
+	defer referenceUnlock()
+	if err := lifecycleRepository.RequireActive(ctx, m.Store, lifecycle.ResourcePlugin, id); err != nil {
+		return domainplugin.Plugin{}, err
+	}
 	var p domainplugin.Plugin
 	if err := m.Store.Get(ctx, "plugin", id, &p); err != nil {
 		return p, err
 	}
 	if cfg == nil {
 		cfg = map[string]any{}
+	}
+	if err := domainplugin.ValidateModels(ctx, id, cfg, func(ctx context.Context, configID string) (agent.Config, error) {
+		var config agent.Config
+		if err := lifecycleRepository.RequireActive(ctx, m.Store, lifecycle.ResourceConfig, configID); err != nil {
+			return config, err
+		}
+		err := m.Store.Get(ctx, "config", configID, &config)
+		return config, err
+	}); err != nil {
+		return p, err
 	}
 	if p.Secrets == nil {
 		p.Secrets = map[string]string{}

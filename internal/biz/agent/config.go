@@ -5,6 +5,8 @@ import (
 	"errors"
 	"github.com/xingexin/catbot/internal/config"
 	"github.com/xingexin/catbot/internal/domain/agent"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepo "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	"github.com/xingexin/catbot/internal/infra/agent/modelapi"
 	"github.com/xingexin/catbot/internal/infra/idgen"
 	"github.com/xingexin/catbot/internal/infra/store"
@@ -25,7 +27,18 @@ func (a *Service) SaveConfig(ctx context.Context, c agent.Config) (agent.Config,
 	if c.ID == "" {
 		c.ID = idgen.New()
 	}
+	referencesUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return c, err
+	}
+	defer referencesUnlock()
+	if err := lifecycleRepo.RequireActive(ctx, a.Store, lifecycle.ResourceConfig, c.ID); err != nil {
+		return c, err
+	}
 	if c.CredentialID != "" {
+		if err := lifecycleRepo.RequireActive(ctx, a.Store, lifecycle.ResourceSecret, c.CredentialID); err != nil {
+			return c, err
+		}
 		if _, err := a.Vault.Get(ctx, c.CredentialID); err != nil {
 			return c, errors.New("credential does not exist")
 		}

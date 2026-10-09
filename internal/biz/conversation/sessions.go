@@ -6,6 +6,8 @@ import (
 	"github.com/xingexin/catbot/internal/domain/agent"
 	"github.com/xingexin/catbot/internal/domain/conversation"
 	convrepo "github.com/xingexin/catbot/internal/domain/conversation/repository"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	lifecycleRepo "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	"github.com/xingexin/catbot/internal/domain/persona"
 	personarepo "github.com/xingexin/catbot/internal/domain/persona/repository"
 	"github.com/xingexin/catbot/internal/infra/idgen"
@@ -23,11 +25,30 @@ func (a *Service) SaveSession(ctx context.Context, in SessionInput) (conversatio
 	if in.ID == "" {
 		in.ID = idgen.New()
 	}
+	metaUnlock, err := a.Store.Lock(ctx, "session-meta:"+in.ID)
+	if err != nil {
+		return conversation.Session{}, err
+	}
+	defer metaUnlock()
+	if err := lifecycleRepo.RequireActive(ctx, a.Store, lifecycle.ResourceSession, in.ID); err != nil {
+		return conversation.Session{}, err
+	}
+
 	unlock, err := a.Store.Lock(ctx, "session:"+in.ID)
 	if err != nil {
 		return conversation.Session{}, err
 	}
 	defer unlock()
+	referencesUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return conversation.Session{}, err
+	}
+	defer referencesUnlock()
+	for resource, id := range map[lifecycle.Resource]string{lifecycle.ResourceConfig: in.ConfigID, lifecycle.ResourcePersona: in.PersonaID} {
+		if err := lifecycleRepo.RequireActive(ctx, a.Store, resource, id); err != nil {
+			return conversation.Session{}, err
+		}
+	}
 	var c agent.Config
 	var p persona.Persona
 	if err := a.Store.Get(ctx, "config", in.ConfigID, &c); err != nil {

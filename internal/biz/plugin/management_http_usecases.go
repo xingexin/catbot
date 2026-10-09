@@ -9,14 +9,6 @@ import (
 )
 
 func (m *Manager) ConfigureManaged(ctx context.Context, id string, cfg map[string]any, grants []string) (domainplugin.Plugin, error) {
-	err := domainplugin.ValidateModels(ctx, id, cfg, func(ctx context.Context, id string) (agent.Config, error) {
-		var c agent.Config
-		err := m.Store.Get(ctx, "config", id, &c)
-		return c, err
-	})
-	if err != nil {
-		return domainplugin.Plugin{}, err
-	}
 	return m.Configure(ctx, id, cfg, grants)
 }
 

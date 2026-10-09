@@ -5,6 +5,8 @@ import (
 	"errors"
 	"github.com/xingexin/catbot/internal/domain/agent"
 	"github.com/xingexin/catbot/internal/domain/conversation"
+	"github.com/xingexin/catbot/internal/domain/lifecycle"
+	archive "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	message "github.com/xingexin/catbot/internal/domain/messaging"
 	"github.com/xingexin/catbot/internal/domain/persona"
 )
@@ -18,6 +20,19 @@ func (a *Service) Connections(ctx context.Context) (map[string]any, error) {
 }
 
 func (a *Service) SaveOneBotBinding(ctx context.Context, b OneBotBinding) (OneBotBinding, error) {
+	referenceUnlock, err := a.Store.Lock(ctx, lifecycle.ReferenceLock)
+	if err != nil {
+		return b, err
+	}
+	defer referenceUnlock()
+	for _, ref := range []struct {
+		resource lifecycle.Resource
+		id       string
+	}{{lifecycle.ResourceConfig, b.ConfigID}, {lifecycle.ResourcePersona, b.PersonaID}, {lifecycle.ResourcePersona, b.GroupPersonaID}} {
+		if err := archive.RequireActive(ctx, a.Store, ref.resource, ref.id); err != nil {
+			return b, err
+		}
+	}
 	if b.Enabled {
 		if !message.ValidQQID(b.SelfID) || len(b.AllowedUserIDs)+len(b.AllowedGroupIDs) == 0 || len(b.AllowedUserIDs) > 20 || len(b.AllowedGroupIDs) > 20 {
 			return b, errors.New("填写登录的 QQ 号，以及允许联系人或群号；联系人和群各最多 20 个")
@@ -92,6 +107,9 @@ func (a *Service) AuthorizeNotification(ctx context.Context, s conversation.Sess
 }
 
 func (a *Service) RetryNotification(ctx context.Context, id string) (message.Notification, error) {
+	if err := archive.RequireActive(ctx, a.Store, lifecycle.ResourceNotification, id); err != nil {
+		return message.Notification{}, err
+	}
 	n := message.Notification{ID: id}
 	if err := a.Store.Get(ctx, "notification", id, &n); err != nil {
 		return n, err
