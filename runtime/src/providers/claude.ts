@@ -12,6 +12,7 @@ import { commonOptions } from "../shared/options.js";
 import { promptFor } from "../shared/prompt.js";
 import { secretaryToolPermission } from "../shared/permissions.js";
 import { emitQueryEvents } from "../shared/events.js";
+import { discoverClaudeModels, type ClaudeModelQueryFactory } from "./claude-models.js";
 
 export function claudeOptions(
   input: RunRequest,
@@ -26,9 +27,11 @@ export function claudeOptions(
 
 export function createClaudeProvider(
   query: SDKQuery<ClaudeOptions> = claudeQuery,
+  modelQuery?: ClaudeModelQueryFactory,
 ): SDKProvider {
   return {
     name: "claude",
+    discoverModels: (input, context) => discoverClaudeModels(input, context, modelQuery),
     async execute(input, context) {
       await emitQueryEvents(
         query({

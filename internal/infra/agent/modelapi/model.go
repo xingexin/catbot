@@ -120,6 +120,9 @@ func makeBody(c agent.Config, system string, h []agent.Entry, tools []agent.Tool
 	msgs := []any{map[string]any{"role": "system", "content": system}}
 	for _, e := range h {
 		m := map[string]any{"role": e.Role, "content": e.Text}
+		if e.Role == "assistant" && e.ReasoningContent != nil {
+			m["reasoning_content"] = *e.ReasoningContent
+		}
 		if len(e.Images) > 0 {
 			content := []any{map[string]any{"type": "text", "text": e.Text}}
 			for _, img := range e.Images {
@@ -254,6 +257,9 @@ func parseJSON(data map[string]any, protocol string) (agent.Turn, error) {
 			return t, errors.New("model output was stopped by the provider content filter")
 		}
 		msg := object(ch["message"])
+		if err := appendReasoningContent(&t, msg["reasoning_content"]); err != nil {
+			return t, err
+		}
 		t.Text = str(msg["content"])
 		if t.Text == "" {
 			t.Text = str(msg["refusal"])
@@ -304,6 +310,26 @@ func parseJSON(data map[string]any, protocol string) (agent.Turn, error) {
 		}
 	}
 	return t, validateTurn(t)
+}
+
+// appendReasoningContent keeps provider continuation state separate from visible text.
+// The same field is used by multiple Chat Completions-compatible services.
+func appendReasoningContent(t *agent.Turn, value any) error {
+	if value == nil {
+		return nil
+	}
+	part, ok := value.(string)
+	if !ok {
+		return errors.New("model reasoning_content must be a string")
+	}
+	if t.ReasoningContent == nil {
+		t.ReasoningContent = new(string)
+	}
+	if len(*t.ReasoningContent)+len(part) > 256<<10 {
+		return errors.New("model reasoning content too large")
+	}
+	*t.ReasoningContent += part
+	return nil
 }
 
 func validateTurn(t agent.Turn) error {
@@ -370,6 +396,9 @@ func parseStream(r io.Reader, protocol string, emit agent.Emit) (agent.Turn, err
 			for _, v := range array(x["choices"]) {
 				ch := object(v)
 				d := object(ch["delta"])
+				if err := appendReasoningContent(&t, d["reasoning_content"]); err != nil {
+					return err
+				}
 				delta += str(d["content"])
 				finish := str(ch["finish_reason"])
 				if finish != "" {

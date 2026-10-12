@@ -1,4 +1,8 @@
-import type { RunRequest } from "./contracts.js";
+import {
+  CodeBuddyEnvironment,
+  type ModelDiscoveryRequest,
+  type RunRequest,
+} from "./contracts.js";
 const identifier = /^[a-zA-Z0-9:_-]{1,240}$/;
 const object = (value: unknown): value is Record<string, any> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -37,7 +41,8 @@ export function validRun(value: unknown): value is RunRequest {
     (value.apiKey !== undefined && !text(value.apiKey)) ||
     (value.nativeId !== undefined &&
       (!text(value.nativeId) || value.nativeId.length > 256)) ||
-    (config.baseUrl !== undefined && !text(config.baseUrl))
+    (config.baseUrl !== undefined && !text(config.baseUrl)) ||
+    !validCodeBuddyEnvironment(config.codebuddyEnvironment)
   )
     return false;
   const messages = (list: unknown) =>
@@ -82,4 +87,47 @@ export function safeEvent(
   if (bytes > 1024 * 1024)
     throw new Error("SDK event exceeds the 1 MB output limit");
   return { json, bytes };
+}
+
+export function validCodeBuddyEnvironment(value: unknown): boolean {
+  return (
+    value === undefined ||
+    [
+      CodeBuddyEnvironment.Unknown,
+      CodeBuddyEnvironment.Inherit,
+      CodeBuddyEnvironment.IOA,
+      CodeBuddyEnvironment.CN,
+      CodeBuddyEnvironment.International,
+    ].includes(value as CodeBuddyEnvironment)
+  );
+}
+
+export function validModelDiscovery(
+  value: unknown,
+): value is ModelDiscoveryRequest {
+  if (!object(value) || !object(value.config)) return false;
+  const { config } = value;
+  if (
+    !text(config.provider) ||
+    !config.provider ||
+    !validCodeBuddyEnvironment(config.codebuddyEnvironment) ||
+    (value.apiKey !== undefined &&
+      (!text(value.apiKey) || value.apiKey.length > 16384))
+  )
+    return false;
+  if (config.baseUrl !== undefined && config.baseUrl !== "") {
+    if (!text(config.baseUrl) || config.baseUrl.length > 2048) return false;
+    try {
+      const url = new URL(config.baseUrl);
+      if (
+        !["https:", "http:"].includes(url.protocol) ||
+        url.username ||
+        url.password
+      )
+        return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }

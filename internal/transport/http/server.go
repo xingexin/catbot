@@ -76,6 +76,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
 	api.HandleFunc("POST /api/runs/{id}/retry", s.retryRun)
 	api.HandleFunc("POST /api/configs", s.saveConfig)
+	api.HandleFunc("POST /api/configs/models", s.listModels)
 	api.HandleFunc("POST /api/configs/{id}/test", s.testConfig)
 	api.HandleFunc("DELETE /api/configs/{id}", s.deleteReferenced("config"))
 	api.HandleFunc("GET /api/secrets", s.credentials)

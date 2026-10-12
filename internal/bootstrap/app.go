@@ -82,7 +82,7 @@ func New(s store.Store, o config.Options) (*App, error) {
 	a.Messaging = bizmessaging.New(s, o, a.Conversation)
 	a.Conversation.Replies = a.Messaging
 	a.Personas = &bizpersona.Service{Store: s}
-	a.Agents = &bizagent.Service{Store: s, Vault: v, Options: o}
+	a.Agents = &bizagent.Service{Store: s, Vault: v, Options: o, APIModels: &modelapi.Model{}, SDKModels: &sdkbridge.Bridge{URL: o.RuntimeURL, Token: o.RuntimeToken}}
 	a.Artifacts = &bizartifact.Service{Store: s, Files: filestore.Store{Root: o.DataDir}, MaxUploadMB: o.MaxUploadMB}
 	a.Mail = &bizmail.Service{Store: s, Tasks: a.Tasks, Plugins: a.Plugins, AuthorizeNotification: a.Messaging.AuthorizeNotification}
 	a.Lifecycle = &bizlifecycle.Service{Store: s, Files: a.Artifacts.Files, CheckBindings: a.Messaging.CheckBindingReference, Handlers: map[lifecycle.Resource]bizlifecycle.Handler{lifecycle.ResourceTask: a.Tasks, lifecycle.ResourcePlugin: a.Plugins}}

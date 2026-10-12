@@ -16,9 +16,11 @@ import (
 )
 
 type Service struct {
-	Store   store.Store
-	Vault   *secret.Vault
-	Options config.Options
+	APIModels ModelLister
+	SDKModels ModelLister
+	Store     store.Store
+	Vault     *secret.Vault
+	Options   config.Options
 }
 
 func (a *Service) SaveConfig(ctx context.Context, c agent.Config) (agent.Config, error) {

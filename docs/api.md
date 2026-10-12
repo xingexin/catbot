@@ -11,6 +11,7 @@
 | `PUT /api/qq/onebot` | 修改 OneBot 私聊联系人、群及人格绑定，需管理员登录 |
 | `GET/POST /api/secrets` | 凭证引用列表 / 加密保存 |
 | `GET/POST /api/configs` | 模型配置 |
+| `POST /api/configs/models` | 按未保存的配置草稿读取实时模型目录，不发起模型生成 |
 | `DELETE /api/configs/{id}` | 兼容旧客户端：归档模型配置并保留历史引用，不执行永久删除 |
 | `POST /api/configs/{id}/test` | API 连接检查；SDK 通过对话联调 |
 | `GET/POST /api/personas` | 人格；复制或导入时不传 ID |
@@ -231,6 +232,51 @@
 ```
 
 SDK 配置改成 `kind=sdk`，`provider` 为 `codebuddy / claude / codex`。SDK 的 Token 上限及能力以各 SDK 实际支持为准；Go 的 `maxTokens` 用于 API 直连。Claude/CodeBuddy 使用 `maxTurns`，Codex 整轮通过超时控制，不假设其公开 SDK 提供相同逐轮步数语义。
+
+### CodeBuddy 接入环境
+
+`kind=sdk / provider=codebuddy` 使用整型字段 `codebuddyEnvironment`；表单在模型配置中独立选择环境，不再只能依赖全局部署环境。
+
+| 值 | 含义 |
+|---|---|
+| `0` 或缺省 | 旧记录兼容值，按「跟随部署配置」读取；新表单使用 `1` |
+| `1` | 跟随部署中的 `CODEBUDDY_INTERNET_ENVIRONMENT` |
+| `2` | iOA（企业环境），配合对应 iOA API Key |
+| `3` | 中国站 |
+| `4` | 国际站 |
+
+其他数值拒绝；非 CodeBuddy 配置不使用此字段。已有继承部署环境的配置继续有效。凭证仍通过 `credentialId` 引用，不能把明文 Key 放入配置或模型目录请求。
+
+### 读取模型目录
+
+`POST /api/configs/models` 接收与模型配置相同的草稿对象，允许 `name`、`model` 为空，其他表单字段可原样提交。它只读取目录，不保存配置、不创建对话、不执行模型生成。
+
+```json
+{
+  "kind": "sdk",
+  "provider": "codebuddy",
+  "codebuddyEnvironment": 2,
+  "baseUrl": "",
+  "credentialId": "已保存的iOA凭证ID"
+}
+```
+
+返回格式（其中模型 ID 仅为结构示例）：
+
+```json
+{
+  "models": [{"id": "service-model-id", "name": "服务返回的名称", "description": "可选说明"}],
+  "source": 1
+}
+```
+
+`source: 1` 表示本次由服务或 SDK 返回的模型目录，不表示账号鉴权成功或拥有全部模型的调用权限。CodeBuddy SDK 在无效凭证下也可能返回目录，实际调用权限需通过对话验证；目录也不代表工具调用或视觉能力已通过验证。列表可能为空，失败按统一格式返回 `{"error":"..."}`，不返回虚构的候选模型。
+
+支持 CodeBuddy SDK、Claude Agent SDK，以及 `kind=api` 下 `openai-chat`、`openai-responses`、`anthropic` 三种协议的端点目录；目录能力取决于实际 Base URL 是否支持。当前 Codex SDK 没有公开目录方法，前端明确提示手动输入模型名称，不静默回退到其他协议。
+
+服务商快捷配置仅属于管理端表单，不增加 API 字段。DeepSeek、Kimi、GLM 等复用现有协议，保存实际 Base URL、模型及凭证引用；配置示例和思考模型边界见 [模型接入](model-providers.md)。
+
+前端更改接入方式、提供商、协议、环境、地址或凭证后清空已取得的列表，并忽略旧请求结果；关闭或切换编辑对象同样使旧请求失效。获取列表不覆盖已经填写的模型名，不自动选中第一个模型；失败后仍可手动填写。
 
 ## 插件模型调用记录
 

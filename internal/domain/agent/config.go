@@ -2,41 +2,22 @@ package agent
 
 import (
 	"errors"
-	"net/url"
 )
 
 func ValidateConfig(c *Config) error {
 	if c.Name == "" || c.Model == "" {
 		return errors.New("name and model are required")
 	}
-	if c.Kind != "sdk" && c.Kind != "api" {
-		return errors.New("kind must be sdk or api")
+	if err := ValidateConnection(c); err != nil {
+		return err
 	}
-	if c.Kind == "sdk" {
-		if c.Provider != "codebuddy" && c.Provider != "claude" && c.Provider != "codex" {
-			return errors.New("unsupported agent SDK")
-		}
+	if ParseExecutionKind(c.Kind) == ExecutionSDK {
 		if c.Capabilities.Images {
 			return errors.New("Agent SDK image input is not supported; use an image-capable API configuration")
 		}
-		// Tools is an administrator opt-in, unlike the SDK's fixed transport
-		// capabilities. Preserve an explicit opt-out when validating a save.
+		// Tool access stays opt-in while stream/resume are SDK capabilities.
 		c.Capabilities.Stream = true
 		c.Capabilities.Resume = true
-	} else {
-		switch c.Protocol {
-		case "openai-chat", "openai-responses", "anthropic":
-		default:
-			return errors.New("unsupported API protocol")
-		}
-	}
-	if c.BaseURL != "" {
-		u, err := url.Parse(c.BaseURL)
-		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return errors.New("baseUrl must be an HTTP(S) URL without credentials, query or fragment")
-		}
-	} else if c.Kind == "api" {
-		return errors.New("baseUrl is required")
 	}
 	if c.MaxSteps == 0 {
 		c.MaxSteps = 12

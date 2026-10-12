@@ -73,3 +73,14 @@ func (s *Server) deleteReferenced(kind string) http.HandlerFunc {
 		respond(w, 200, map[string]bool{"ok": true}, err)
 	}
 }
+
+func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
+	var in agent.Config
+	if err := decode(w, r, &in); err != nil {
+		fail(w, err)
+		return
+	}
+	value, err := s.services.Agent.ListModels(r.Context(), in)
+	w.Header().Set("Cache-Control", "no-store")
+	respond(w, 200, value, err)
+}

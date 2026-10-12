@@ -1,5 +1,26 @@
 # 首版验收报告
 
+## API 厂商快捷配置与 Claude SDK 目录（2026-10-12）
+
+- 管理端新增 OpenAI/GPT、Anthropic/Claude、DeepSeek、Kimi、GLM、自定义快捷配置。仅填写协议与地址，不持久化品牌路由或固定模型清单。跨站点、接入方式或 SDK 厂商切换清空凭证选择；相同站点改路径/协议保留。模型与能力不自动变更。
+- Claude SDK 使用 `supportedModels()`，不向输入流写入任何 user 消息。真实 SDK 加子进程桩证明仅发送 initialize；测试还覆盖取消后忽略 SIGTERM 的进程被终止、退出后才清理临时目录。当前 Codex SDK 仍需手工填写模型，不以 OpenAI API 目录冒充其 SDK 目录。
+- 通用 Chat Completions 兼容 `reasoning_content` 的当前运行内工具回传。实际 HTTP 测试覆盖 JSON/SSE、三轮请求及多个工具、空值/格式错误/大小上限/输入预算，且不泄露到用户事件或最终回答。跨用户轮次的原生思考轨迹不持久化，不能据此声称已兼容所有保留思考模式。
+- Go 相关领域、业务、协议、SDK Bridge、HTTP 的 `-race` 测试通过；Runtime 构建及 33 项测试通过（显式启用两家 SDK 的 bundled CLI 只读元数据检查）；Web 32 项测试与构建通过。没有发送收费模型请求或 QQ 消息，也没有提供新增厂商的真实凭证验收。
+- 已部署 backend `d6ee44bc373c`、runtime `0ef8240494ee`、web `c6be8a04daa2`；backend/runtime 健康，Web 实际页面可访问。浏览器验证五家 API 预设均填入预期地址/协议、自定义保留地址、手写模型保留、跨站点/SDK 厂商更换清凭证、同站点路径变化保留凭证。Claude SDK 在未选凭证、Base URL 指向不可用本地端口时读取 4 个客户端目录项，仅证明只读元数据链路。Codex 显示手填说明，没有目录按钮。
+- 草稿最后取消，未创建或更改原有模型配置。浏览器没有脚本错误。页面报告：[模型配置验收](../data/acceptance/model-provider-ui-report.json)，[快捷配置截图](../data/acceptance/model-provider-presets.png)。
+
+
+
+## iOA 接入环境与模型目录（2026-10-12）
+
+- 模型配置新增每条配置独立的 CodeBuddy 接入环境，整型编号兼容旧记录。模型名称可搜索选择，也可手动填写；API 直连实现 OpenAI/Anthropic 目录协议，Claude/Codex SDK 明确保留手动输入。
+- 已部署 backend `b2d34bdc1faa`、runtime `4c7ca8ab27d6`、web `cc7fe6b53336`。浏览器新建草稿选择 CodeBuddy → iOA → 已有服务端凭证，名称与模型均为空时成功读取 **32** 个模型。搜索 GLM 后点击 GLM-5.3，回填 SDK 返回的 ID `glm-5.3-ioa`，最后取消草稿，未保存或改变原模型配置。
+- 首次真实查询暴露固定 SDK 的兼容问题：`requestTimeoutMs` 被转成自带 CLI 不支持的参数，导致进程退出。已移除该参数，继续由 Runtime 30 秒截止与取消处理控制；补了真实 bundled CLI 只读元数据检查及早期取消清理回归。
+- Go 全量 `go test -race ./...` 及新增 HTTP/SDK Bridge 契约测试通过；Runtime 27 项测试（显式开启真实 CLI 元数据检查）与 TypeScript 构建通过；前端 24 项测试及构建通过。API 三协议使用隔离的 HTTP 测试服务，没有新增 OpenAI/Anthropic 真实凭证验收。
+- 本次没有发送模型生成请求或 QQ 消息。目录读取不证明 Key 对每个模型的调用权限；实际模型/工具/视觉能力仍需单独验证，不能把 SDK 目录作为鉴权成功结论。
+
+报告：[只读模型目录验收](../data/acceptance/codebuddy-model-catalog.json)，[界面截图](../data/acceptance/codebuddy-model-catalog.png)。
+
 初次验收日期：2026-09-23；CodeBuddy 真实联调补充日期：2026-09-30。代码、部署配置、管理端、SDK 适配、插件开发包和两个业务验证插件已交付。已完成本地自动化验收及下述 CodeBuddy 联调；不能把本报告视为所有真实服务均已兼容的结论。
 
 ## 批量归档与整型枚举约定（2026-10-09）

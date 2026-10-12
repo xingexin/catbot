@@ -41,6 +41,9 @@ type Call struct {
 	Arguments string `json:"arguments"`
 }
 type Entry struct {
+	// ReasoningContent is opaque provider state for subsequent model requests.
+	// A non-nil empty value preserves an explicitly returned empty field.
+	ReasoningContent   *string
 	Role, Text, CallID string
 	IsError            bool
 	Images             []string
@@ -48,9 +51,10 @@ type Entry struct {
 	Raw                []any
 }
 type Turn struct {
-	Text  string
-	Calls []Call
-	Raw   []any
-	Usage map[string]int
+	ReasoningContent *string
+	Text             string
+	Calls            []Call
+	Raw              []any
+	Usage            map[string]int
 }
 type Emit func(string, map[string]any) error

@@ -41,6 +41,11 @@ import {
 } from "@ant-design/icons";
 import { api, downloadJSON, parseJSON, pretty } from "./api";
 import { Editor } from "./editor";
+import {
+  initialModelConfig,
+  modelEnvironmentLabel,
+  normalizeModelConfig,
+} from "./model-config";
 import { QQConnections } from "./qq";
 import { ModelConnections } from "./models";
 import { MailSettings } from "./mail";
@@ -253,22 +258,7 @@ export function Catbot() {
   function open(kind: string, value: Row = {}) {
     setEdit({ kind, value });
     form.resetFields();
-    if (kind === "config")
-      form.setFieldsValue({
-        kind: "api",
-        protocol: "openai-chat",
-        maxSteps: 12,
-        maxTokens: 4096,
-        maxInputBytes: 98304,
-        timeoutSec: 180,
-        capabilities: {
-          tools: true,
-          stream: true,
-          images: false,
-          resume: false,
-        },
-        ...value,
-      });
+    if (kind === "config") form.setFieldsValue(initialModelConfig(value));
     else if (kind === "persona")
       form.setFieldsValue({
         ...value,
@@ -304,7 +294,13 @@ export function Catbot() {
       let result: any;
       switch (edit.kind) {
         case "config":
-          result = await api("/configs", { ...edit.value, ...v });
+          result = await api(
+            "/configs",
+            normalizeModelConfig({
+              ...edit.value,
+              ...form.getFieldsValue(true),
+            }),
+          );
           break;
         case "persona": {
           const { examplesJSON, allTools, ...rest } = v;
@@ -962,6 +958,9 @@ export function Catbot() {
               </p>
               <p className="endpoint">{c.baseUrl || "SDK 默认服务地址"}</p>
               <Space wrap>
+                {modelEnvironmentLabel(c) && (
+                  <Tag>{modelEnvironmentLabel(c)}</Tag>
+                )}
                 {c.capabilities?.tools && <Tag>工具</Tag>}
                 {c.capabilities?.images && <Tag>图片</Tag>}
                 {c.capabilities?.stream && <Tag>流式</Tag>}

@@ -8,6 +8,7 @@ import {
   withLifecycleActions,
 } from "./lifecycle-ui";
 import type { Row } from "./catbot";
+import { modelEnvironmentLabel } from "./model-config";
 
 export function ModelConnections({
   configs,
@@ -108,6 +109,9 @@ export function ModelConnections({
                   <div className="muted">
                     {c.kind === "sdk" ? c.provider : c.protocol}
                   </div>
+                  {modelEnvironmentLabel(c) && (
+                    <Tag>{modelEnvironmentLabel(c)}</Tag>
+                  )}
                 </>
               ),
             },

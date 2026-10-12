@@ -51,7 +51,7 @@ func (d *Direct) Run(ctx context.Context, r Request, emit Emit) (Result, error) 
 		if err != nil {
 			return out, err
 		}
-		current = append(current, Entry{Role: "assistant", Text: t.Text, Calls: t.Calls, Raw: t.Raw})
+		current = append(current, Entry{Role: "assistant", Text: t.Text, ReasoningContent: t.ReasoningContent, Calls: t.Calls, Raw: t.Raw})
 		if len(t.Calls) == 0 {
 			out.Text = t.Text
 			return out, nil

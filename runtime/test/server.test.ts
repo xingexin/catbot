@@ -61,6 +61,31 @@ test(
         assert.equal(rejected.status, 400);
         await rejected.text();
       }
+      assert.equal(
+        (await fetch(url + "/models", { method: "POST" })).status,
+        401,
+      );
+      for (const [body, status] of [
+        [
+          { config: { provider: "codebuddy", codebuddyEnvironment: "ioa" } },
+          400,
+        ],
+        [
+          { config: { provider: "codex" }, apiKey: "DO_NOT_STORE_MODEL_KEY" },
+          422,
+        ],
+      ] as const) {
+        const response = await fetch(url + "/models", {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer fixture-token",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        assert.equal(response.status, status);
+        assert.doesNotMatch(await response.text(), /DO_NOT_STORE_MODEL_KEY/);
+      }
       const health = await fetch(url + "/health", {
         headers: { Authorization: "Bearer fixture-token" },
       });

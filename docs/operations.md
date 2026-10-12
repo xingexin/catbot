@@ -53,9 +53,17 @@ Compose 项目名决定数据卷前缀，不能把它当作界面标题随意修
 
 执行服务为各 SDK 设置独立 HOME，不读取开发机其他项目或浏览器中的登录信息。可以在凭证库保存对应官方 SDK 支持的 Key。订阅账号是否能用某种认证方式，以厂商 SDK 条款和文档为准；不能把通用兼容 Key 当作三家 SDK 通用凭证。
 
-Claude 适配使用 `ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL`。CodeBuddy 适配使用 SDK 支持的环境配置；按账号区域设置 `CODEBUDDY_INTERNET_ENVIRONMENT`。Codex 使用构造参数 `apiKey / baseUrl`。原生会话目录在 SDK 数据卷内按提供商分开。
+Claude 适配使用 `ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL`。CodeBuddy 可在每条模型配置中选择接入环境；选择「跟随部署配置」时继续读取 `CODEBUDDY_INTERNET_ENVIRONMENT`。Codex 使用构造参数 `apiKey / baseUrl`。原生会话目录在 SDK 数据卷内按提供商分开。
 
-CodeBuddy iOA 接入：在 `deploy/.env` 设置 `CODEBUDDY_INTERNET_ENVIRONMENT=ioa` 后执行 `make`。打开「系统与凭证 → 模型接入」（或左侧「模型配置」），添加配置并选择 CodeBuddy Agent SDK；在配置对话框内添加 iOA Key 后自动选用，也可选用已保存的凭证。保存后的配置使用 `kind=sdk / provider=codebuddy`；GLM 5.3 的模型 ID 为 `glm-5.3`，Base URL 留空使用官方路由。`glm5.3` 会收到模型不存在的 400 响应。
+CodeBuddy iOA 接入：打开「系统与凭证 → 模型接入」（或左侧「模型配置」），添加配置并选择「Agent SDK → CodeBuddy Agent SDK → iOA（企业环境）」。选用已保存的 iOA Key，或点击「添加 API Key」后自动选用。Base URL 可留空使用该环境的默认地址；这一步配置 API Key 与路由，不会发起浏览器 iOA 登录。
+
+点击「获取模型列表」读取所选环境的 SDK 模型目录，随后选择模型并保存；无需先填写配置名称或模型，也不产生模型生成请求。CodeBuddy SDK 在凭证无效时也可能返回目录，因此成功取得列表不等于 API Key 已通过鉴权，也不代表账号有权调用其中所有模型；实际权限需通过对话验证。工具、视觉等能力选项仍按模型实际支持情况设置。也可手动输入模型 ID；目录为空或获取失败时会显示原因，不能用预置假列表代替。
+
+环境保存为整型 `codebuddyEnvironment`：`1` 跟随部署、`2` iOA、`3` 中国站、`4` 国际站；旧记录缺省或 `0` 按继承部署配置读取。已有 `deploy/.env` 中的 `CODEBUDDY_INTERNET_ENVIRONMENT=ioa` 继续生效，无需改动旧记录；新建配置可直接选择 iOA，无需为了它修改全局环境。切换离开 CodeBuddy 时表单移除其专用环境字段。
+
+实时目录支持 CodeBuddy SDK、Claude Agent SDK，以及 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 的 API 直连端点。当前 Codex SDK 需手动填写模型名称，不会切换成 API 直连来获取目录。
+
+API 直连提供 OpenAI/GPT、Anthropic/Claude、DeepSeek、Kimi、GLM 与自定义快捷配置。预设只填写协议和地址，Key、模型和能力仍由管理员确认；详细配置及兼容边界见 [模型接入](model-providers.md)。
 
 「接口协议」用于模型 API 直连，CodeBuddy Agent SDK 在 SDK 接入方式中选择。若连接 CodeBuddy 的兼容 API，则根据端点支持的协议选择 OpenAI Chat Completions、Responses 或 Anthropic Messages。
 

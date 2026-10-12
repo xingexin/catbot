@@ -1268,3 +1268,21 @@ button:focus-visible {
 .purge-preview-list .ant-tag {
   margin-left: 8px;
 }
+
+.model-discovery-input {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.model-discovery-input .ant-select {
+  flex: 1;
+  min-width: 0;
+}
+.model-discovery-help {
+  margin: 8px 0;
+  font-size: 13px;
+}
+@media (max-width: 560px) {
+  .model-discovery-input { flex-wrap: wrap; }
+  .model-discovery-input .ant-select { flex-basis: 100%; }
+}

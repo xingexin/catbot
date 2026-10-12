@@ -16,6 +16,7 @@ import {
 } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { Row } from "./catbot";
+import { ModelConfigFields } from "./model-config-fields";
 const { TextArea } = Input;
 function SelectField({
   name,
@@ -64,15 +65,7 @@ export function Editor({
   const [credentialOpen, setCredentialOpen] = useState(false);
   const [savingCredential, setSavingCredential] = useState(false);
   const [credentialForm] = Form.useForm();
-  const executionKind = Form.useWatch("kind", form);
   const { message } = App.useApp();
-  useEffect(() => {
-    if (edit?.kind === "config" && executionKind === "sdk") {
-      form.setFieldValue(["capabilities", "images"], false);
-      form.setFieldValue(["capabilities", "stream"], true);
-      form.setFieldValue(["capabilities", "resume"], true);
-    }
-  }, [edit?.kind, executionKind, form]);
   useEffect(() => {
     if (!edit) {
       setCredentialOpen(false);
@@ -131,166 +124,19 @@ export function Editor({
       <Form form={form} layout="vertical">
         {edit?.value.id && <p className="muted mono">ID: {edit.value.id}</p>}
         {edit?.kind === "config" && (
-          <>
-            <Form.Item
-              name="name"
-              label="配置名称"
-              rules={[{ required: true }]}
-            >
-              <Input />
-            </Form.Item>
-            <Form.Item
-              name="kind"
-              label="接入方式"
-              extra="使用 CodeBuddy、Claude 或 Codex SDK 时，请选择 Agent SDK。"
-            >
-              <Select
-                options={[
-                  { value: "api", label: "模型 API 直连" },
-                  { value: "sdk", label: "Agent SDK" },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item noStyle shouldUpdate>
-              {() =>
-                form.getFieldValue("kind") === "sdk" ? (
-                  <Form.Item
-                    name="provider"
-                    label="Agent SDK"
-                    rules={[{ required: true, message: "请选择 Agent SDK" }]}
-                  >
-                    <Select
-                      placeholder="选择 CodeBuddy、Claude 或 Codex"
-                      options={[
-                        { value: "codebuddy", label: "CodeBuddy Agent SDK" },
-                        { value: "claude", label: "Claude Agent SDK" },
-                        { value: "codex", label: "Codex SDK" },
-                      ]}
-                    />
-                  </Form.Item>
-                ) : (
-                  <Form.Item
-                    name="protocol"
-                    label="接口协议"
-                    extra="这里选择 API 的请求格式；请按你的 Base URL 实际支持的协议选择。"
-                  >
-                    <Select
-                      options={[
-                        {
-                          value: "openai-chat",
-                          label: "OpenAI Chat Completions",
-                        },
-                        {
-                          value: "openai-responses",
-                          label: "OpenAI Responses",
-                        },
-                        { value: "anthropic", label: "Anthropic Messages" },
-                      ]}
-                    />
-                  </Form.Item>
-                )
-              }
-            </Form.Item>
-            <Form.Item name="model" label="Model" rules={[{ required: true }]}>
-              <Input placeholder="端点实际支持的模型名称" />
-            </Form.Item>
-            <Form.Item name="baseUrl" label="Base URL">
-              <Input placeholder="例如 https://api.openai.com/v1；SDK 可留空" />
-            </Form.Item>
-            <SelectField
-              name="credentialId"
-              label="API Key 凭证引用"
-              rows={rows("secrets")}
-              required={false}
-            />
-            <Button
-              type="link"
-              onClick={() => {
-                credentialForm.resetFields();
-                credentialForm.setFieldValue(
-                  "name",
-                  form.getFieldValue("name") || "模型 API Key",
-                );
-                setCredentialOpen(true);
-              }}
-            >
-              添加 API Key
-            </Button>
-            <div className="form-grid">
-              <Form.Item
-                name="maxSteps"
-                label="最大循环步数"
-                help="API 限制模型轮次；Claude / CodeBuddy 使用 SDK turn 限制。Codex SDK 当前以超时限制整轮执行。"
-              >
-                <InputNumber min={1} max={50} />
-              </Form.Item>
-              <Form.Item name="timeoutSec" label="超时（秒）">
-                <InputNumber min={1} max={3600} />
-              </Form.Item>
-              <Form.Item noStyle shouldUpdate>
-                {() =>
-                  form.getFieldValue("kind") === "api" && (
-                    <Form.Item name="maxTokens" label="最大输出 Token">
-                      <InputNumber min={1} max={32768} />
-                    </Form.Item>
-                  )
-                }
-              </Form.Item>
-            </div>
-            <Form.Item noStyle shouldUpdate>
-              {() =>
-                form.getFieldValue("kind") === "api" && (
-                  <Form.Item
-                    name="maxInputBytes"
-                    label="上下文输入预算（字节）"
-                    help="含人格、工具声明和历史。超出时裁剪旧对话；保留当前请求。需根据模型窗口调整，这不是精确 Token 数。"
-                  >
-                    <InputNumber
-                      min={8192}
-                      max={2097152}
-                      step={8192}
-                      style={{ width: 200 }}
-                    />
-                  </Form.Item>
-                )
-              }
-            </Form.Item>
-            <Form.Item noStyle shouldUpdate>
-              {() => (
-                <>
-                  <Space wrap>
-                    {[
-                      ["tools", "工具调用"],
-                      ...(form.getFieldValue("kind") === "sdk"
-                        ? []
-                        : [
-                            ["stream", "流式输出"],
-                            ["images", "图片输入"],
-                          ]),
-                    ].map(([key, label]) => (
-                      <Form.Item
-                        key={key}
-                        name={["capabilities", key]}
-                        valuePropName="checked"
-                      >
-                        <Checkbox>{label}</Checkbox>
-                      </Form.Item>
-                    ))}
-                  </Space>
-                  {form.getFieldValue("kind") === "sdk" && (
-                    <p className="muted">
-                      SDK 提供流式输出和会话恢复；当前 SDK 仅支持文本输入。
-                      输出上限由 SDK、模型和宿主的字节限制共同控制。
-                    </p>
-                  )}
-                </>
-              )}
-            </Form.Item>
-            <p className="muted">
-              能力需与所选模型一致。SDK 原生工具循环由 SDK 执行；模型 API
-              的循环由本框架执行。
-            </p>
-          </>
+          <ModelConfigFields
+            key={edit.value.id ?? "new-config"}
+            form={form}
+            credentials={rows("secrets")}
+            onCreateCredential={() => {
+              credentialForm.resetFields();
+              credentialForm.setFieldValue(
+                "name",
+                form.getFieldValue("name") || "模型 API Key",
+              );
+              setCredentialOpen(true);
+            }}
+          />
         )}
         {edit?.kind === "persona" && (
           <>

@@ -1,19 +1,20 @@
 package agent
 
 type Config struct {
-	ID            string       `json:"id"`
-	Name          string       `json:"name"`
-	Kind          string       `json:"kind"`
-	Provider      string       `json:"provider"`
-	Protocol      string       `json:"protocol"`
-	BaseURL       string       `json:"baseUrl"`
-	Model         string       `json:"model"`
-	CredentialID  string       `json:"credentialId,omitempty"`
-	MaxSteps      int          `json:"maxSteps"`
-	MaxTokens     int          `json:"maxTokens"`
-	MaxInputBytes int          `json:"maxInputBytes,omitempty"`
-	TimeoutSec    int          `json:"timeoutSec"`
-	Capabilities  Capabilities `json:"capabilities"`
+	CodeBuddyEnvironment CodeBuddyEnvironment `json:"codebuddyEnvironment,omitempty"`
+	ID                   string               `json:"id"`
+	Name                 string               `json:"name"`
+	Kind                 string               `json:"kind"`
+	Provider             string               `json:"provider"`
+	Protocol             string               `json:"protocol"`
+	BaseURL              string               `json:"baseUrl"`
+	Model                string               `json:"model"`
+	CredentialID         string               `json:"credentialId,omitempty"`
+	MaxSteps             int                  `json:"maxSteps"`
+	MaxTokens            int                  `json:"maxTokens"`
+	MaxInputBytes        int                  `json:"maxInputBytes,omitempty"`
+	TimeoutSec           int                  `json:"timeoutSec"`
+	Capabilities         Capabilities         `json:"capabilities"`
 }
 
 type Capabilities struct {

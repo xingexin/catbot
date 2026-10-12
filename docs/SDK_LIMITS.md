@@ -14,7 +14,13 @@
 
 同日额外通过“对话创建定时任务”真实验收：CodeBuddy 实际调用一次 `system__task_create`，Temporal 在约定的 90 秒后执行 `example__echo`，唯一 Web 通知以 `saved` 状态保存相同随机标记、尝试次数为 1。该检查没有通过管理 API 直接创建任务，也未发送 QQ；报告见 `data/acceptance/codebuddy-task-live-report.json`。
 
-代码中的“已支持”表示适配路径和配置已经存在，不代表任意账号、模型或第三方代理都支持对应 SDK。CodeBuddy 模型实际标识是 `glm-5.3`，`glm5.3` 并非此端点已验证的标识。
+代码中的“已支持”表示适配路径和配置已经存在，不代表任意账号、模型或第三方代理都支持对应 SDK。此前 CodeBuddy 对话联调使用 `glm-5.3`，`glm5.3` 并非已验证标识。当前新增的 SDK 模型目录应保留服务返回的原始 ID；2026-10-12 的 iOA 目录中 GLM-5.3 对应 `glm-5.3-ioa`，不要自行去掉后缀。此次只读目录验证不代替该 ID 的实际对话权限验证。
+
+## 模型目录
+
+CodeBuddy 和 Claude 的公开 SDK 元数据接口已接入「获取模型列表」，不发送用户提示词，不产生模型生成。Claude 使用隔离目录和 `supportedModels()`；CodeBuddy 使用 `getAvailableModels()`。SDK 可能返回客户端内置目录，不能据此判断账号可调用每个模型。当前固定 Codex SDK 无公开目录接口，仍需手动填写；使用 OpenAI API 直连时可读取其 `/models`。
+
+厂商 API 快捷配置及当前思考模型兼容边界见 [模型接入](model-providers.md)。
 
 ## 限制与恢复
 

@@ -7,15 +7,21 @@ import { mkdir, open, writeFile, rename } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { execute } from "./execution.js";
-import type { RunRequest, RunEvent } from "./contracts.js";
+import type { RunEvent } from "./contracts.js";
 import { providerRegistry } from "./registry.js";
-import { validRun, safeEvent } from "./validation.js";
+import {
+  discoverModels,
+  modelDiscoveryError,
+  ModelDiscoveryUnsupportedError,
+} from "./models.js";
+import { validModelDiscovery, validRun, safeEvent } from "./validation.js";
 
 const root = resolve(process.env.RUNTIME_DATA_DIR ?? "../data/sdk");
 const token = process.env.RUNTIME_TOKEN;
 if (!token) throw new Error("RUNTIME_TOKEN is required");
 await mkdir(join(root, "runs"), { recursive: true, mode: 0o700 });
 const active = new Map<string, AbortController>();
+const modelLookups = new Set<AbortController>();
 function json(res: ServerResponse, status: number, data: unknown) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
@@ -25,7 +31,7 @@ function authorized(req: IncomingMessage): boolean {
     want = Buffer.from("Bearer " + token);
   return got.length === want.length && timingSafeEqual(got, want);
 }
-async function readBody(req: IncomingMessage): Promise<RunRequest> {
+async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -33,7 +39,7 @@ async function readBody(req: IncomingMessage): Promise<RunRequest> {
     if (size > 2 * 1024 * 1024) throw new Error("Request too large");
     chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as RunRequest;
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 const server = createServer(async (req, res) => {
   if (!authorized(req)) {
@@ -49,11 +55,55 @@ const server = createServer(async (req, res) => {
     });
     return;
   }
+  if (req.method === "POST" && req.url === "/models") {
+    let input: unknown;
+    try {
+      input = await readBody(req);
+    } catch {
+      json(res, 400, { error: "Invalid request" });
+      return;
+    }
+    if (!validModelDiscovery(input)) {
+      json(res, 400, { error: "Invalid model discovery configuration" });
+      return;
+    }
+    if (modelLookups.size >= 4) {
+      json(res, 429, { error: "Model discovery busy" });
+      return;
+    }
+    const controller = new AbortController();
+    modelLookups.add(controller);
+    const deadline = setTimeout(
+      () =>
+        controller.abort(new Error("读取模型列表超时，请检查网络、环境和凭证")),
+      30000,
+    );
+    const disconnect = () =>
+      controller.abort(new Error("Model discovery cancelled"));
+    res.once("close", disconnect);
+    try {
+      const models = await discoverModels(input, root, controller.signal);
+      if (!res.destroyed) json(res, 200, models);
+    } catch (error) {
+      if (!res.destroyed)
+        json(res, error instanceof ModelDiscoveryUnsupportedError ? 422 : 502, {
+          error: modelDiscoveryError(error, [
+            input.apiKey,
+            process.env.CODEBUDDY_API_KEY,
+          ]),
+        });
+    } finally {
+      clearTimeout(deadline);
+      res.removeListener("close", disconnect);
+      modelLookups.delete(controller);
+    }
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/runs") {
     json(res, 404, { error: "Not found" });
     return;
   }
-  let input: RunRequest;
+  let input: unknown;
   try {
     input = await readBody(req);
   } catch {
@@ -167,5 +217,6 @@ server.listen(
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.on(signal, () => {
     for (const c of active.values()) c.abort();
+    for (const c of modelLookups) c.abort();
     server.close();
   });

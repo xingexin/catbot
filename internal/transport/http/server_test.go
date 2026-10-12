@@ -30,6 +30,7 @@ import (
 )
 
 type fixture struct {
+	agent   *agentbiz.Service
 	handler http.Handler
 	store   store.Store
 	cookie  *http.Cookie
@@ -64,7 +65,7 @@ func newFixture(t *testing.T) fixture {
 		w.Header().Set("X-Fixture-Internal", "passed")
 		w.WriteHeader(418)
 	}))
-	fixture := fixture{handler: server.Handler(), store: state}
+	fixture := fixture{handler: server.Handler(), store: state, agent: services.Agent}
 	response := fixture.request("POST", "/api/login", `{"password":"fixture-password"}`)
 	if response.Code != 200 {
 		t.Fatal(response.Code, response.Body.String())
