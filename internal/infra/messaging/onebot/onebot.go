@@ -180,6 +180,10 @@ func (q *Adapter) Receive(w http.ResponseWriter, r *http.Request) {
 		SubType     string          `json:"sub_type"`
 		Anonymous   json.RawMessage `json:"anonymous"`
 		Message     json.RawMessage `json:"message"`
+		Sender      struct {
+			Nickname string `json:"nickname"`
+			Card     string `json:"card"`
+		} `json:"sender"`
 	}
 	if err := json.Unmarshal(body, &event); err != nil {
 		httpio.Fail(w, errors.New("invalid OneBot event"))
@@ -210,13 +214,17 @@ func (q *Adapter) Receive(w http.ResponseWriter, r *http.Request) {
 		httpio.Fail(w, err)
 		return
 	}
-	if strings.TrimSpace(text) == "" || event.MessageID == "" || (roomID != "" && !mentioned) {
+	if strings.TrimSpace(text) == "" || event.MessageID == "" {
 		httpio.JSON(w, 200, map[string]any{})
 		return
 	}
+	senderName := strings.TrimSpace(event.Sender.Card)
+	if senderName == "" {
+		senderName = strings.TrimSpace(event.Sender.Nickname)
+	}
 	if err := q.incoming(r.Context(), message.InboundMessage{
 		Account: string(event.SelfID), Peer: string(event.UserID), MessageID: string(event.MessageID),
-		RoomID: roomID, Mentioned: mentioned,
+		RoomID: roomID, Mentioned: mentioned, SenderName: senderName,
 		Text: text, ReceivedAt: time.Unix(event.Time, 0),
 	}); err != nil {
 		httpio.Fail(w, err)

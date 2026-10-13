@@ -25,6 +25,22 @@ func (a *Service) SaveOneBotBinding(ctx context.Context, b OneBotBinding) (OneBo
 		return b, err
 	}
 	defer referenceUnlock()
+	policyUnlock, err := a.Store.Lock(ctx, historyPolicyLock("onebot"))
+	if err != nil {
+		return b, err
+	}
+	defer policyUnlock()
+	// Older clients omit the additive field; preserve the existing policy.
+	if b.GroupHistory == nil {
+		old, err := a.OneBotBinding(ctx)
+		if err != nil {
+			return b, err
+		}
+		b.GroupHistory = old.GroupHistory
+	}
+	if err := a.validateGroupHistorySettings(&b); err != nil {
+		return b, err
+	}
 	for _, ref := range []struct {
 		resource lifecycle.Resource
 		id       string
@@ -75,7 +91,15 @@ func (a *Service) SaveOneBotBinding(ctx context.Context, b OneBotBinding) (OneBo
 		}
 		status := a.ChannelStatus(ctx, "onebot")
 		if channel.Status != nil && status.Account != b.SelfID {
-			return b, errors.New("请先在消息接入服务登录，并绑定当前登录的 QQ 号")
+			previous, err := a.OneBotBinding(ctx)
+			if err != nil {
+				return b, err
+			}
+			// An offline adapter cannot verify a new account. Existing verified bindings
+			// may still edit settings; delivery continues to verify the live account.
+			if status.Account != "" || !previous.Enabled || previous.SelfID != b.SelfID {
+				return b, errors.New("请先在消息接入服务登录，并绑定当前登录的 QQ 号")
+			}
 		}
 	}
 	if err := a.Store.Put(ctx, "qq-binding", "onebot", b); err != nil {

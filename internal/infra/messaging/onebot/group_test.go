@@ -18,19 +18,20 @@ import (
 
 func TestGroupMentionsAreStructuredAndAddressedToBot(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		message  string
-		accepted bool
-		text     string
+		name      string
+		message   string
+		accepted  bool
+		mentioned bool
+		text      string
 	}{
-		{"string bot ID", `[{"type":"at","data":{"qq":"10001"}},{"type":"text","data":{"text":"hello"}}]`, true, "hello"},
-		{"numeric bot ID", `[{"type":"at","data":{"qq":10001}},{"type":"text","data":{"text":"hello"}}]`, true, "hello"},
-		{"all members", `[{"type":"at","data":{"qq":"all"}},{"type":"text","data":{"text":"hello"}}]`, false, ""},
-		{"another member", `[{"type":"at","data":{"qq":"99999"}},{"type":"text","data":{"text":"hello"}}]`, false, ""},
-		{"ordinary group text", `[{"type":"text","data":{"text":"hello @10001"}}]`, false, ""},
-		{"only reply reference", `[{"type":"reply","data":{"id":"123"}},{"type":"text","data":{"text":"hello"}}]`, false, ""},
-		{"empty mention", `[{"type":"at","data":{"qq":"10001"}},{"type":"text","data":{"text":" "}}]`, false, ""},
-		{"reply with mention", `[{"type":"reply","data":{"id":"123"}},{"type":"at","data":{"qq":"10001"}},{"type":"text","data":{"text":"hello"}}]`, true, "hello"},
+		{"string bot ID", `[{"type":"at","data":{"qq":"10001"}},{"type":"text","data":{"text":"hello"}}]`, true, true, "hello"},
+		{"numeric bot ID", `[{"type":"at","data":{"qq":10001}},{"type":"text","data":{"text":"hello"}}]`, true, true, "hello"},
+		{"all members", `[{"type":"at","data":{"qq":"all"}},{"type":"text","data":{"text":"hello"}}]`, true, false, "[QQ 提及其他成员]hello"},
+		{"another member", `[{"type":"at","data":{"qq":"99999"}},{"type":"text","data":{"text":"hello"}}]`, true, false, "[QQ 提及其他成员]hello"},
+		{"ordinary group text", `[{"type":"text","data":{"text":"hello @10001"}}]`, true, false, "hello @10001"},
+		{"only reply reference", `[{"type":"reply","data":{"id":"123"}},{"type":"text","data":{"text":"hello"}}]`, true, false, "hello"},
+		{"empty mention", `[{"type":"at","data":{"qq":"10001"}},{"type":"text","data":{"text":" "}}]`, false, true, ""},
+		{"reply with mention", `[{"type":"reply","data":{"id":"123"}},{"type":"at","data":{"qq":"10001"}},{"type":"text","data":{"text":"hello"}}]`, true, true, "hello"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var received []message.InboundMessage
@@ -50,7 +51,7 @@ func TestGroupMentionsAreStructuredAndAddressedToBot(t *testing.T) {
 			}
 			if !tc.accepted {
 				if len(received) != 0 {
-					t.Fatal("non-addressed message invoked the agent")
+					t.Fatal("empty message reached the receiver")
 				}
 				return
 			}
@@ -58,7 +59,7 @@ func TestGroupMentionsAreStructuredAndAddressedToBot(t *testing.T) {
 				t.Fatalf("received %d messages", len(received))
 			}
 			got := received[0]
-			if got.RoomID != "30003" || got.Peer != "20002" || got.Account != "10001" || !got.Mentioned || got.Text != tc.text || got.MessageID != "-42" {
+			if got.RoomID != "30003" || got.Peer != "20002" || got.Account != "10001" || got.Mentioned != tc.mentioned || got.Text != tc.text || got.MessageID != "-42" {
 				t.Fatalf("bad normalized message: %#v", got)
 			}
 		})

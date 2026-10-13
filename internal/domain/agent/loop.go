@@ -19,7 +19,7 @@ func (d *Direct) Run(ctx context.Context, r Request, emit Emit) (Result, error) 
 		examples = append(examples, Entry{Role: msg.Role, Text: msg.Content})
 	}
 	history := append([]Message(nil), r.History...)
-	current := []Entry{{Role: "user", Text: r.Prompt}}
+	current := []Entry{{Role: "user", Text: PromptWithContext(r.Prompt, r.Context)}}
 	system := BuildSystemPrompt(r.Persona, time.Now())
 	out := Result{Usage: map[string]int{}}
 	tools := r.Tools
@@ -65,6 +65,9 @@ func (d *Direct) Run(ctx context.Context, r Request, emit Emit) (Result, error) 
 		if d.Tools == nil {
 			return out, errors.New("tool execution service is unavailable")
 		}
+		// Carry the observation budget into read tools so paginated results can
+		// shrink their page while retaining cursors and coverage metadata.
+		limit := min(64<<10, max(512, inputBudget(r.Config)/(4*len(t.Calls))))
 		for i, call := range t.Calls {
 			if err := ctx.Err(); err != nil {
 				return out, err
@@ -79,14 +82,11 @@ func (d *Direct) Run(ctx context.Context, r Request, emit Emit) (Result, error) 
 				err = errors.New("tool arguments must be an object")
 			}
 			if err == nil {
-				value, err = d.Tools.Call(ctx, r.RunID, call.Name, args, fmt.Sprintf("%s:%d:%d", r.RunID, step, i))
+				value, err = d.Tools.Call(WithToolResultLimit(ctx, limit), r.RunID, call.Name, args, fmt.Sprintf("%s:%d:%d", r.RunID, step, i))
 			}
 			if err != nil {
 				value = map[string]any{"error": err.Error()}
 			}
-			// The observation is itself JSON inside a JSON model request. Reserve
-			// room for escaping, declarations, and the rest of this tool batch.
-			limit := min(64<<10, max(512, inputBudget(r.Config)/(4*len(t.Calls))))
 			encoded, observation, merr := ToolObservation(value, limit)
 			if merr != nil {
 				return out, merr

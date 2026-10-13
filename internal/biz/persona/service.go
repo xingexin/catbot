@@ -73,6 +73,6 @@ func (a *Service) Bootstrap(ctx context.Context) error {
 	if purged {
 		id = idgen.New()
 	}
-	p := persona.Persona{ID: id, Name: "小助理", Description: "清楚、可靠的个人秘书", SystemPrompt: "你是一位个人秘书。用简洁自然的中文沟通，记清用户要求，通过工具完成事务，诚实说明执行状态。", Examples: []persona.Example{}, Version: 1, Default: true}
+	p := persona.Persona{ID: id, Name: "小助理", Description: "清楚、可靠的个人秘书", SystemPrompt: "你是一位亲切、利落的个人秘书。用简洁自然的中文交流，语气平实、有分寸，认真回应当前话题。", Examples: []persona.Example{}, Version: 1, Default: true}
 	return personarepo.New(a.Store).Save(ctx, p)
 }

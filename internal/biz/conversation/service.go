@@ -26,6 +26,14 @@ type Plugins interface {
 type ToolSource interface {
 	Tools(context.Context, conversation.Run) ([]agent.Tool, error)
 }
+
+// SourceSessionResolver is optional so ordinary tool sources need not resolve tasks.
+type SourceSessionResolver interface {
+	ToolSourceSession(context.Context, string) (conversation.Session, error)
+}
+type GroupContextSource interface {
+	GroupContext(context.Context, conversation.Session, time.Time) (string, error)
+}
 type ReplyNotifier interface {
 	NotifyReply(context.Context, conversation.Run) error
 }
@@ -34,6 +42,7 @@ type Service struct {
 	Vault        *secret.Vault
 	Plugins      Plugins
 	ToolSource   ToolSource
+	GroupContext GroupContextSource
 	Replies      ReplyNotifier
 	Direct       agent.Executor
 	SDK          agent.Executor
@@ -189,7 +198,11 @@ func (a *Service) Execute(ctx context.Context, id string) (conversation.Run, err
 	if summary != "" {
 		history = append([]agent.Message{{Role: "user", Content: summary}}, history...)
 	}
-	tools, runErr := a.ToolSource.Tools(ctx, run)
+	groupContext, runErr := a.groupReference(ctx, run)
+	var tools []agent.Tool
+	if runErr == nil {
+		tools, runErr = a.ToolSource.Tools(ctx, run)
+	}
 	key := ""
 	if runErr == nil {
 		key, runErr = a.Vault.Get(ctx, run.Config.CredentialID)
@@ -202,7 +215,7 @@ func (a *Service) Execute(ctx context.Context, id string) (conversation.Run, err
 		if run.Config.Kind == "sdk" {
 			executor = a.SDK
 		}
-		result, runErr = executor.Run(ctx, agent.Request{RunID: run.ID, SessionID: run.SessionID, Prompt: run.Prompt, Config: run.Config, Persona: run.Persona, History: history, Tools: tools, Key: key, NativeID: native}, emit)
+		result, runErr = executor.Run(ctx, agent.Request{RunID: run.ID, SessionID: run.SessionID, Prompt: run.Prompt, Context: groupContext, Config: run.Config, Persona: run.Persona, History: history, Tools: tools, Key: key, NativeID: native}, emit)
 		if result.NativeID != "" {
 			run.NativeID = result.NativeID
 		}

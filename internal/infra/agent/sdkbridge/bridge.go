@@ -22,7 +22,7 @@ type Bridge struct {
 func (b *Bridge) Run(ctx context.Context, r agent.Request, emit agent.Emit) (agent.Result, error) {
 	payload := map[string]any{
 		"runId": r.RunID, "sessionId": r.SessionID, "config": r.Config,
-		"prompt": r.Prompt, "persona": r.Persona, "history": r.History, "nativeId": r.NativeID,
+		"prompt": r.Prompt, "context": agent.BoundReference(r.Context), "persona": r.Persona, "history": r.History, "nativeId": r.NativeID,
 		"apiKey": r.Key, "gatewayUrl": b.GatewayURL, "gatewayToken": b.RunToken("run:" + r.RunID),
 	}
 	data, err := json.Marshal(payload)

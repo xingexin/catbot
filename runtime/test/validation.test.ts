@@ -61,3 +61,12 @@ test("SDK event boundaries reject actual NUL and oversized output and redact enc
     /output limit/,
   );
 });
+
+
+test("run reference context is optional, text-only and byte-bounded", () => {
+  assert.equal(validRun({ ...input, context: "group recent messages" }), true);
+  assert.equal(validRun({ ...input, context: "x".repeat(16 * 1024) }), true);
+  for (const context of [null, 42, [], "bad\0text", "x".repeat(16 * 1024 + 1), "文".repeat(6000)]) {
+    assert.equal(validRun({ ...input, context }), false);
+  }
+});

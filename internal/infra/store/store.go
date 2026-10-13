@@ -91,6 +91,10 @@ func Open(ctx context.Context, url string) (*Postgres, error) {
 		locks.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
+	if err := s.migrateSeries(ctx); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("migrate time series: %w", err)
+	}
 	return s, nil
 }
 
@@ -225,6 +229,7 @@ type Memory struct {
 	data          map[string]map[string]json.RawMessage
 	events        []EventRecord
 	eventSequence int64
+	series        map[string]map[string]*memorySeries
 	locks         map[string]chan struct{}
 }
 

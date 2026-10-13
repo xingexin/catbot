@@ -46,6 +46,7 @@ type InboundMessage struct {
 	Route      string
 	Account    string
 	Peer       string
+	SenderName string
 	RoomID     string
 	Mentioned  bool
 	MessageID  string

@@ -11,6 +11,7 @@ import (
 	"github.com/xingexin/catbot/internal/domain/agent"
 	artifactdomain "github.com/xingexin/catbot/internal/domain/artifact"
 	"github.com/xingexin/catbot/internal/domain/conversation"
+	convrepo "github.com/xingexin/catbot/internal/domain/conversation/repository"
 	"github.com/xingexin/catbot/internal/domain/lifecycle"
 	lifecycleRepository "github.com/xingexin/catbot/internal/domain/lifecycle/repository"
 	plugindomain "github.com/xingexin/catbot/internal/domain/plugin"
@@ -18,6 +19,7 @@ import (
 	"github.com/xingexin/catbot/internal/infra/store"
 	"slices"
 	"strings"
+	"time"
 )
 
 type TaskCommands interface {
@@ -27,10 +29,15 @@ type TaskCommands interface {
 	ControlTaskWithOperation(context.Context, string, string, string) (any, error)
 	Connected() bool
 }
+type GroupHistorySource interface {
+	GroupHistory(context.Context, conversation.Session, time.Time, map[string]any) (any, error)
+	CanReadGroupHistory(context.Context, conversation.Session) (bool, error)
+}
 type Service struct {
-	Store   store.Store
-	Plugins *plugin.Manager
-	Tasks   TaskCommands
+	Store        store.Store
+	Plugins      *plugin.Manager
+	Tasks        TaskCommands
+	GroupHistory GroupHistorySource
 }
 
 func (a *Service) Tools(ctx context.Context, r conversation.Run) ([]agent.Tool, error) {
@@ -76,6 +83,20 @@ func (a *Service) ToolsForSource(ctx context.Context, r conversation.Run, source
 		return nil, err
 	}
 	for _, t := range agent.BuiltinTools() {
+		if t.Name == agent.GroupHistoryToolName {
+			// Historical group content needs explicit persona permission and a
+			// fresh administrator-controlled recording grant, even on resumed runs.
+			if source.ChannelRoom == "" || a.GroupHistory == nil || !slices.Contains(r.Persona.Tools, t.Name) {
+				continue
+			}
+			allowed, err := a.GroupHistory.CanReadGroupHistory(ctx, source)
+			if err != nil {
+				return nil, err
+			}
+			if !allowed {
+				continue
+			}
+		}
 		// Artifacts have no owner field yet, so none can be disclosed in groups.
 		if source.ChannelRoom != "" && (t.Name == "system__artifact_list" || t.Name == "system__artifact_read") {
 			continue
@@ -196,6 +217,12 @@ func (a *Service) Call(ctx context.Context, runID, name string, args map[string]
 		}
 	}
 	switch name {
+	case agent.GroupHistoryToolName:
+		cutoff, cutoffErr := convrepo.RunCutoff(ctx, a.Store, r)
+		if cutoffErr != nil {
+			return nil, cutoffErr
+		}
+		value, err = a.GroupHistory.GroupHistory(ctx, source, cutoff, args)
 	case "system__task_create":
 		b, _ := json.Marshal(args)
 		var t taskentity.Task

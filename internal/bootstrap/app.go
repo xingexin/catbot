@@ -21,6 +21,7 @@ import (
 	"github.com/xingexin/catbot/internal/infra/agent/sdkbridge"
 	"github.com/xingexin/catbot/internal/infra/auth"
 	"github.com/xingexin/catbot/internal/infra/filestore"
+	grouphistory "github.com/xingexin/catbot/internal/infra/messaging/history"
 	infraplugin "github.com/xingexin/catbot/internal/infra/plugin"
 	"github.com/xingexin/catbot/internal/infra/store"
 	"github.com/xingexin/catbot/internal/infra/vault"
@@ -81,6 +82,9 @@ func New(s store.Store, o config.Options) (*App, error) {
 	a.Conversation.SDK = &sdkbridge.Bridge{URL: o.RuntimeURL, Token: o.RuntimeToken, GatewayURL: o.InternalURL + "/internal/mcp", RunToken: a.Tokens.Token}
 	a.Messaging = bizmessaging.New(s, o, a.Conversation)
 	a.Conversation.Replies = a.Messaging
+	a.Messaging.History = grouphistory.New(s)
+	a.Conversation.GroupContext = a.Messaging
+	a.Tools.GroupHistory = a.Messaging
 	a.Personas = &bizpersona.Service{Store: s}
 	a.Agents = &bizagent.Service{Store: s, Vault: v, Options: o, APIModels: &modelapi.Model{}, SDKModels: &sdkbridge.Bridge{URL: o.RuntimeURL, Token: o.RuntimeToken}}
 	a.Artifacts = &bizartifact.Service{Store: s, Files: filestore.Store{Root: o.DataDir}, MaxUploadMB: o.MaxUploadMB}
@@ -109,7 +113,7 @@ func (a *App) Bootstrap(ctx context.Context) error {
 	return a.registerBundled(ctx)
 }
 func (a *App) Start() {
-	a.reconciler = reconcile.Start(a.Tasks.Reconcile, a.Messaging.ReconcileNotifications)
+	a.reconciler = reconcile.Start(a.Tasks.Reconcile, a.Messaging.ReconcileNotifications, a.Messaging.ReconcileGroupHistory)
 	a.Dispatcher.Start()
 }
 func (a *App) Close() { a.reconciler.Close(); a.Dispatcher.Close(); a.Plugins.Close() }

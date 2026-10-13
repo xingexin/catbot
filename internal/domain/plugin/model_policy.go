@@ -12,7 +12,7 @@ func ValidateModels(ctx context.Context, id string, cfg map[string]any, lookup f
 	if id == "video" {
 		fields = []string{"transcriptionConfigId", "visionConfigId"}
 	}
-	if id == "mail" {
+	if id == "mail" || id == "group-chat" {
 		fields = []string{"summaryConfigId"}
 	}
 	for _, field := range fields {

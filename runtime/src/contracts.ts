@@ -53,6 +53,7 @@ export interface RunRequest {
   };
   history: { role: string; content: string }[];
   prompt: string;
+  context?: string;
   nativeId?: string;
   apiKey?: string;
   gatewayUrl: string;

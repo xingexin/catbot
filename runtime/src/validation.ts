@@ -35,6 +35,8 @@ export function validRun(value: unknown): value is RunRequest {
     !text(persona.systemPrompt) ||
     (persona.preferences !== undefined && !text(persona.preferences)) ||
     !text(value.prompt) ||
+    (value.context !== undefined &&
+      (!text(value.context) || Buffer.byteLength(value.context, "utf8") > 16 * 1024)) ||
     !text(value.gatewayToken) ||
     !value.gatewayToken ||
     !text(value.gatewayUrl) ||

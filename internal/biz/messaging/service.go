@@ -32,6 +32,7 @@ type Service struct {
 	Conversation Conversation
 	Notifier     func(context.Context, message.NotificationDelivery) error
 	channels     map[string]Channel
+	History      GroupHistoryRepository
 }
 
 func New(s store.Store, o config.Options, c Conversation) *Service {
@@ -58,13 +59,14 @@ type Channel struct {
 	Binding        func(context.Context) (message.ChannelBinding, error)
 }
 type OneBotBinding struct {
-	Enabled         bool     `json:"enabled"`
-	SelfID          string   `json:"selfId"`
-	AllowedUserIDs  []string `json:"allowedUserIds"`
-	AllowedGroupIDs []string `json:"allowedGroupIds"`
-	ConfigID        string   `json:"configId"`
-	PersonaID       string   `json:"personaId"`
-	GroupPersonaID  string   `json:"groupPersonaId"`
+	Enabled         bool                          `json:"enabled"`
+	SelfID          string                        `json:"selfId"`
+	AllowedUserIDs  []string                      `json:"allowedUserIds"`
+	AllowedGroupIDs []string                      `json:"allowedGroupIds"`
+	ConfigID        string                        `json:"configId"`
+	PersonaID       string                        `json:"personaId"`
+	GroupPersonaID  string                        `json:"groupPersonaId"`
+	GroupHistory    *message.GroupHistorySettings `json:"groupHistory,omitempty"`
 }
 
 func (a *Service) HandleIncoming(ctx context.Context, in message.InboundMessage) error {
@@ -76,11 +78,19 @@ func (a *Service) HandleIncoming(ctx context.Context, in message.InboundMessage)
 	if err != nil {
 		return err
 	}
-	if !binding.Allows(in.Account, in.Peer, in.RoomID, false) || (in.RoomID != "" && !in.Mentioned) {
+	if !binding.Allows(in.Account, in.Peer, in.RoomID, false) {
 		return nil
 	}
 	if in.MessageID == "" || strings.TrimSpace(in.Text) == "" {
 		return nil
+	}
+	if in.RoomID != "" {
+		if err := a.recordGroupIncoming(ctx, in); err != nil {
+			return err
+		}
+		if !in.Mentioned {
+			return nil
+		}
 	}
 	if binding.ConfigID == "" {
 		return errors.New("select a channel execution configuration first")
@@ -282,6 +292,10 @@ func (a *Service) DeliverNotification(ctx context.Context, in message.Notificati
 	}
 	if d.Status != "sent" {
 		return errors.New(d.Error)
+	}
+	// A recorded successful delivery must never be resent because history storage failed.
+	if err := a.recordGroupOutgoing(finish, session, text, operationID, result.MessageID); err != nil {
+		slog.Warn("group reply history persistence failed", "error", err)
 	}
 	return nil
 }
@@ -534,12 +548,16 @@ func (a *Service) OneBotBinding(ctx context.Context) (OneBotBinding, error) {
 	if errors.Is(err, store.ErrNotFound) {
 		err = nil
 	}
+	if b.GroupHistory == nil {
+		settings := message.DefaultGroupHistorySettings()
+		b.GroupHistory = &settings
+	}
 	return b, err
 }
 
 func (a *Service) OneBotChannelBinding(ctx context.Context) (message.ChannelBinding, error) {
 	b, err := a.OneBotBinding(ctx)
-	return message.ChannelBinding{Enabled: b.Enabled, Account: b.SelfID, AllowedPeers: b.AllowedUserIDs, AllowedRooms: b.AllowedGroupIDs, ConfigID: b.ConfigID, PersonaID: b.PersonaID, RoomPersonaID: b.GroupPersonaID}, err
+	return message.ChannelBinding{Enabled: b.Enabled, Account: b.SelfID, AllowedPeers: b.AllowedUserIDs, AllowedRooms: b.AllowedGroupIDs, ConfigID: b.ConfigID, PersonaID: b.PersonaID, RoomPersonaID: b.GroupPersonaID, GroupHistory: b.GroupHistory}, err
 }
 
 func (a *Service) OfficialChannelBinding(context.Context) (message.ChannelBinding, error) {

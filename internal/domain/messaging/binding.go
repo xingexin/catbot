@@ -13,6 +13,7 @@ type ChannelBinding struct {
 	ConfigID, PersonaID string
 	RoomPersonaID       string
 	AllowLegacyAccount  bool
+	GroupHistory        *GroupHistorySettings
 }
 
 func (b ChannelBinding) Allows(account, peer, roomID string, outbound bool) bool {

@@ -351,3 +351,30 @@ test("Codex preserves error, missing-completion, malformed text and cancellation
     /cancelled by caller/,
   );
 });
+
+
+test("all SDK providers send current group reference while resuming native sessions", async () => {
+  const reference = "CURRENT-GROUP-REFERENCE";
+  const request = { ...input, nativeId: "native", context: reference };
+  const prompts: string[] = [];
+  for (const provider of ["claude", "codebuddy"] as const) {
+    const query: SDKQuery<ClaudeOptions | BuddyOptions> = (value) => {
+      prompts.push(value.prompt);
+      assert.equal(value.options.resume, "native");
+      assert.match(String(value.options.systemPrompt), /PERSONA/);
+      return iterable([{ type: "result", subtype: "success", result: "done" }]);
+    };
+    const adapter = provider === "claude" ? createClaudeProvider(query) : createCodeBuddyProvider(query);
+    await adapter.execute({ ...request, config: { ...request.config, provider } }, context().value);
+  }
+  const { adapter, observed } = codexFixture([{ type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } }]);
+  await adapter.execute({ ...request, config: { ...request.config, provider: "codex" } }, context().value);
+  assert.equal(observed.resumed, "native");
+  prompts.push(String(observed.prompt));
+  assert.equal(prompts.length, 3);
+  for (const prompt of prompts) {
+    assert.match(prompt, /CURRENT-GROUP-REFERENCE/);
+    assert.match(prompt, /Current user request:\nCURRENT/);
+    assert.doesNotMatch(prompt, /HISTORY|EXAMPLE/);
+  }
+});

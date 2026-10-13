@@ -10,12 +10,14 @@ type Request struct {
 	RunID     string
 	SessionID string
 	Prompt    string
-	Config    Config
-	Persona   persona.Persona
-	History   []Message
-	Tools     []Tool
-	Key       string
-	NativeID  string
+	// Context is ephemeral reference material for this turn, never persisted history.
+	Context  string
+	Config   Config
+	Persona  persona.Persona
+	History  []Message
+	Tools    []Tool
+	Key      string
+	NativeID string
 }
 type Result struct {
 	Text     string
