@@ -17,6 +17,7 @@ import {
 import { PlusOutlined } from "@ant-design/icons";
 import type { Row } from "./catbot";
 import { ModelConfigFields } from "./model-config-fields";
+import { pluginSelectOptions } from "./plugin-schema";
 const { TextArea } = Input;
 function SelectField({
   name,
@@ -244,6 +245,7 @@ export function Editor({
             ).map(([name, raw]) => {
               const prop = raw as Row;
               const password = prop.format === "password";
+              const choices = pluginSelectOptions(prop);
               return (
                 <Form.Item
                   key={name}
@@ -262,12 +264,13 @@ export function Editor({
                       : []
                   }
                 >
-                  {prop.enum ? (
+                  {choices ? (
                     <Select
-                      options={prop.enum.map((v: any) => ({
-                        value: v,
-                        label: String(v),
-                      }))}
+                      options={choices}
+                      placeholder={
+                        choices.find((choice) => choice.value === prop.default)
+                          ?.label
+                      }
                     />
                   ) : prop.type === "boolean" ? (
                     <Switch />

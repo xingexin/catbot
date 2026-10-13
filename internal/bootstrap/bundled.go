@@ -37,7 +37,7 @@ func newerBundle(next, previous string) bool {
 // Upgrade shipped packages when their declared version increases. Register
 // preserves configured credentials and grants; active runs retain frozen files.
 func (a *App) registerBundled(ctx context.Context) error {
-	for _, dir := range []string{"example", "mail", "video", "example-go", "group-chat"} {
+	for _, dir := range []string{"example", "mail", "video", "example-go", "group-chat", "web-search"} {
 		archived, err := lifecycleRepo.Archived(ctx, a.Store, lifecycle.ResourcePlugin, dir)
 		if err != nil {
 			return err

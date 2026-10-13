@@ -1,0 +1,14 @@
+{
+  "name": "@catbot/plugin-web-search",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@catbot/plugin-sdk": "1.1.0",
+    "cheerio": "1.2.0",
+    "ipaddr.js": "2.5.0"
+  }
+}

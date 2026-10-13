@@ -37,6 +37,7 @@ make help                   # 查看命令说明
 4. 让秘书调用 `example__echo` 验证工具链。
 5. 在「邮箱监听」配置、测试并启用 IMAP，选择接收提醒的 QQ 或 Web 会话。
 6. 在「插件」配置视频能力；上传文件后创建后台解析任务。
+7. 启用「联网搜索」插件并给人格授权，即可搜索和读取公开网页；搜索需 Tavily 或 Brave Key，网页读取无需 Key。见 [联网搜索配置](docs/web-search.md)。
 
 对话、任务、人格、插件、模型配置、文件与各类运行记录支持批量归档。左侧「归档」集中恢复或永久删除；任务恢复后保持暂停，插件恢复后保持停用。收到新消息时，对应的已归档会话自动恢复，归档不会停用 QQ。仍有依赖或活动执行的记录会保留并显示原因。
 
@@ -86,7 +87,7 @@ internal/worker/    Temporal、即时对话队列、恢复扫描
 runtime/src/        SDK 服务、契约、注册表和三家 Provider
 packages/plugin-sdk/ TypeScript 插件开发包
 packages/plugin-sdk-go/ Go 插件开发包（MCP stdio）
-plugins/            TS / Go 示例、IMAP 邮箱、视频解析
+plugins/            TS / Go 示例、IMAP 邮箱、视频解析、群聊总结、联网搜索
 web/                React + Ant Design 管理端
 scripts/            开发工具与集成验收脚本
 deploy/             Docker、Compose、环境配置、Nginx 与部署脚本/测试

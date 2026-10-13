@@ -8,6 +8,7 @@ COPY plugins/example/package.json plugins/example/package.json
 COPY plugins/mail/package.json plugins/mail/package.json
 COPY plugins/video/package.json plugins/video/package.json
 COPY plugins/group-chat/package.json plugins/group-chat/package.json
+COPY plugins/web-search/package.json plugins/web-search/package.json
 RUN npm ci
 COPY runtime runtime
 COPY web web
